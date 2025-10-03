@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}History - Fact Checker App{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <h2 class="mb-4"><i class="bi bi-clock-history"></i> Analysis History</h2>
+
+            <div class="card shadow-sm">
+                <div class="card-body p-4">
+                    <div id="loadingSpinner" class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 text-muted">Loading history...</p>
+                    </div>
+
+                    <div id="historyContent" style="display: none;">
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="searchHistory" 
+                                   placeholder="Search history...">
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Article</th>
+                                        <th>Score</th>
+                                        <th>Confidence</th>
+                                        <th>Sources</th>
+                                        <th>Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyTableBody">
+                                    <!-- History items will be inserted here -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div id="noHistory" class="text-center py-5" style="display: none;">
+                            <i class="bi bi-inbox" style="font-size: 4rem; color: #ccc;"></i>
+                            <p class="text-muted mt-3">No analysis history yet</p>
+                            <a href="/analyze" class="btn btn-primary">
+                                <i class="bi bi-play-fill"></i> Start First Analysis
+                            </a>
+                        </div>
+                    </div>
+
+                    <div id="errorMessage" class="alert alert-danger" style="display: none;">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Failed to load history. Please try again.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let historyData = [];
+
+    // Load history on page load
+    window.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const response = await fetch('/api/history');
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to load history');
+            }
+
+            historyData = result.history;
+            displayHistory(historyData);
+
+        } catch (error) {
+            document.getElementById('loadingSpinner').style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'block';
+            document.getElementById('errorMessage').textContent = error.message;
+        }
+    });
+
+    function displayHistory(history) {
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('historyContent').style.display = 'block';
+
+        if (history.length === 0) {
+            document.getElementById('noHistory').style.display = 'block';
+            document.querySelector('.table-responsive').style.display = 'none';
+            return;
+        }
+
+        const tbody = document.getElementById('historyTableBody');
+        tbody.innerHTML = '';
+
+        history.forEach(item => {
+            const row = document.createElement('tr');
+            
+            // Article title with URL
+            const titleCell = document.createElement('td');
+            if (item.article_url && item.article_url !== 'user_provided_text') {
+                titleCell.innerHTML = `
+                    <a href="${item.article_url}" target="_blank" class="text-decoration-none">
+                        ${truncate(item.article_title, 50)}
+                        <i class="bi bi-box-arrow-up-right small"></i>
+                    </a>
+                `;
+            } else {
+                titleCell.textContent = truncate(item.article_title, 50);
+            }
+            row.appendChild(titleCell);
+
+            // Score with color coding
+            const scoreCell = document.createElement('td');
+            const score = Math.round(item.overall_score);
+            let scoreClass = 'text-danger';
+            if (score >= 80) scoreClass = 'text-success';
+            else if (score >= 60) scoreClass = 'text-warning';
+            scoreCell.innerHTML = `<strong class="${scoreClass}">${score}</strong>`;
+            row.appendChild(scoreCell);
+
+            // Confidence badge
+            const confidenceCell = document.createElement('td');
+            confidenceCell.innerHTML = `
+                <span class="badge confidence-${item.confidence_level}">
+                    ${item.confidence_level.toUpperCase()}
+                </span>
+            `;
+            row.appendChild(confidenceCell);
+
+            // Sources checked
+            const sourcesCell = document.createElement('td');
+            sourcesCell.textContent = item.sources_checked;
+            row.appendChild(sourcesCell);
+
+            // Date
+            const dateCell = document.createElement('td');
+            const date = new Date(item.created_at);
+            dateCell.textContent = date.toLocaleDateString();
+            dateCell.className = 'text-muted small';
+            row.appendChild(dateCell);
+
+            // Actions
+            const actionsCell = document.createElement('td');
+            actionsCell.innerHTML = `
+                <button class="btn btn-sm btn-outline-primary" onclick="viewReport(${item.report_id})">
+                    <i class="bi bi-eye"></i> View
+                </button>
+            `;
+            row.appendChild(actionsCell);
+
+            tbody.appendChild(row);
+        });
+
+        // Setup search
+        document.getElementById('searchHistory').addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            const filtered = historyData.filter(item =>
+                item.article_title.toLowerCase().includes(searchTerm) ||
+                (item.article_url && item.article_url.toLowerCase().includes(searchTerm))
+            );
+            displayHistory(filtered);
+        });
+    }
+
+    function viewReport(reportId) {
+        window.location.href = `/report/${reportId}`;
+    }
+
+    function truncate(text, maxLength) {
+        if (text.length <= maxLength) return text;
+        return text.substring(0, maxLength) + '...';
+    }
+</script>
+{% endblock %}

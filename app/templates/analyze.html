@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}Analyze Article - Fact Checker App{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <h2 class="mb-4"><i class="bi bi-search"></i> Analyze Article</h2>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <form id="analyzeForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Choose Input Method:</label>
+                            <div class="btn-group w-100" role="group">
+                                <input type="radio" class="btn-check" name="inputType" id="urlInput" value="url" checked>
+                                <label class="btn btn-outline-primary" for="urlInput">
+                                    <i class="bi bi-link-45deg"></i> Article URL
+                                </label>
+                                <input type="radio" class="btn-check" name="inputType" id="textInput" value="text">
+                                <label class="btn btn-outline-primary" for="textInput">
+                                    <i class="bi bi-file-text"></i> Paste Text
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="urlInputSection">
+                            <div class="mb-3">
+                                <label for="articleUrl" class="form-label fw-bold">Article URL</label>
+                                <input type="url" class="form-control" id="articleUrl" 
+                                       placeholder="https://example.com/article">
+                                <div class="form-text">Enter the full URL of the article you want to fact-check</div>
+                            </div>
+                        </div>
+
+                        <div id="textInputSection" style="display: none;">
+                            <div class="mb-3">
+                                <label for="articleTitle" class="form-label fw-bold">Article Title (Optional)</label>
+                                <input type="text" class="form-control" id="articleTitle" 
+                                       placeholder="Enter article title">
+                            </div>
+                            <div class="mb-3">
+                                <label for="articleText" class="form-label fw-bold">Article Text</label>
+                                <textarea class="form-control" id="articleText" rows="10" 
+                                          placeholder="Paste the article text here"></textarea>
+                                <div class="form-text">Paste the full article text for fact-checking</div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-lg w-100">
+                            <i class="bi bi-play-fill"></i> Start Analysis
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Progress Section -->
+            <div id="progressSection" class="card shadow-sm" style="display: none;">
+                <div class="card-body p-4">
+                    <h5 class="card-title mb-3">
+                        <i class="bi bi-gear-fill spin"></i> Analyzing...
+                    </h5>
+                    <div class="progress mb-3" style="height: 30px;">
+                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+                    <div id="progressStatus" class="text-center text-muted">
+                        Initializing analysis...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="resultsSection" class="card shadow-sm" style="display: none;">
+                <div class="card-body p-4">
+                    <h4 class="card-title mb-4 text-center">
+                        <i class="bi bi-clipboard-check"></i> Analysis Complete
+                    </h4>
+
+                    <div class="text-center mb-4">
+                        <div class="score-gauge" id="scoreGauge">
+                            <div class="score-circle">
+                                <div class="score-inner">
+                                    <div class="score-value" id="scoreValue">0</div>
+                                    <div class="score-label">Accuracy</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="text-center mb-4">
+                        <span class="confidence-badge" id="confidenceBadge">Loading...</span>
+                    </div>
+
+                    <div class="mb-3">
+                        <h5>Summary</h5>
+                        <p id="reportSummary" class="text-muted">Loading summary...</p>
+                    </div>
+
+                    <div class="mb-3">
+                        <h5>Recommendations</h5>
+                        <p id="reportRecommendations" class="text-muted">Loading recommendations...</p>
+                    </div>
+
+                    <div class="mb-3">
+                        <h5>Sources Checked</h5>
+                        <p id="sourcesChecked" class="text-muted">Loading...</p>
+                    </div>
+
+                    <div class="text-center">
+                        <a href="#" id="viewDetailedReport" class="btn btn-primary">
+                            <i class="bi bi-file-earmark-text"></i> View Detailed Report
+                        </a>
+                        <a href="/analyze" class="btn btn-outline-secondary ms-2">
+                            <i class="bi bi-arrow-repeat"></i> New Analysis
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Section -->
+            <div id="errorSection" class="alert alert-danger" style="display: none;">
+                <h5><i class="bi bi-exclamation-triangle"></i> Error</h5>
+                <p id="errorMessage"></p>
+                <button class="btn btn-sm btn-outline-danger" onclick="location.reload()">Try Again</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    .spin {
+        animation: spin 2s linear infinite;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Toggle between URL and text input
+    document.querySelectorAll('input[name="inputType"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (e.target.value === 'url') {
+                document.getElementById('urlInputSection').style.display = 'block';
+                document.getElementById('textInputSection').style.display = 'none';
+            } else {
+                document.getElementById('urlInputSection').style.display = 'none';
+                document.getElementById('textInputSection').style.display = 'block';
+            }
+        });
+    });
+
+    // Handle form submission
+    document.getElementById('analyzeForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const inputType = document.querySelector('input[name="inputType"]:checked').value;
+        const data = {};
+        
+        if (inputType === 'url') {
+            const url = document.getElementById('articleUrl').value;
+            if (!url) {
+                alert('Please enter an article URL');
+                return;
+            }
+            data.url = url;
+        } else {
+            const text = document.getElementById('articleText').value;
+            const title = document.getElementById('articleTitle').value;
+            if (!text) {
+                alert('Please paste article text');
+                return;
+            }
+            data.text = text;
+            if (title) data.title = title;
+        }
+        
+        // Hide form and show progress
+        document.getElementById('analyzeForm').parentElement.parentElement.style.display = 'none';
+        document.getElementById('progressSection').style.display = 'block';
+        document.getElementById('resultsSection').style.display = 'none';
+        document.getElementById('errorSection').style.display = 'none';
+        
+        // Simulate progress updates
+        updateProgress(20, 'Extracting facts from article...');
+        
+        try {
+            const response = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+            
+            updateProgress(50, 'Searching for sources...');
+            
+            const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(result.error || 'Analysis failed');
+            }
+            
+            updateProgress(100, 'Analysis complete!');
+            
+            // Display results
+            setTimeout(() => {
+                displayResults(result);
+            }, 500);
+            
+        } catch (error) {
+            document.getElementById('progressSection').style.display = 'none';
+            document.getElementById('errorSection').style.display = 'block';
+            document.getElementById('errorMessage').textContent = error.message;
+        }
+    });
+    
+    function updateProgress(percent, status) {
+        const progressBar = document.getElementById('progressBar');
+        progressBar.style.width = percent + '%';
+        progressBar.textContent = percent + '%';
+        document.getElementById('progressStatus').textContent = status;
+    }
+    
+    function displayResults(result) {
+        const report = result.report;
+        
+        // Hide progress, show results
+        document.getElementById('progressSection').style.display = 'none';
+        document.getElementById('resultsSection').style.display = 'block';
+        
+        // Display score
+        const score = Math.round(report.overall_score);
+        document.getElementById('scoreValue').textContent = score;
+        
+        // Update score gauge color
+        const scoreGauge = document.getElementById('scoreGauge').querySelector('.score-circle');
+        scoreGauge.style.setProperty('--score', score);
+        
+        if (score >= 80) {
+            scoreGauge.style.background = `conic-gradient(#28a745 0deg, #28a745 ${score * 3.6}deg, #e9ecef ${score * 3.6}deg)`;
+        } else if (score >= 60) {
+            scoreGauge.style.background = `conic-gradient(#ffc107 0deg, #ffc107 ${score * 3.6}deg, #e9ecef ${score * 3.6}deg)`;
+        } else {
+            scoreGauge.style.background = `conic-gradient(#dc3545 0deg, #dc3545 ${score * 3.6}deg, #e9ecef ${score * 3.6}deg)`;
+        }
+        
+        // Display confidence
+        const confidenceBadge = document.getElementById('confidenceBadge');
+        confidenceBadge.textContent = report.confidence_level.toUpperCase();
+        confidenceBadge.className = 'confidence-badge confidence-' + report.confidence_level;
+        
+        // Display summary and recommendations
+        document.getElementById('reportSummary').textContent = report.summary;
+        document.getElementById('reportRecommendations').textContent = report.recommendations;
+        document.getElementById('sourcesChecked').textContent = `${report.sources_checked} sources analyzed`;
+        
+        // Set up detailed report link
+        document.getElementById('viewDetailedReport').href = `/report/${result.report_id}`;
+    }
+</script>
+{% endblock %}

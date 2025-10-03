@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+
+{% block title %}Detailed Report - Fact Checker App{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="row">
+        <div class="col-12">
+            <!-- Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="bi bi-file-earmark-text"></i> Detailed Analysis Report</h2>
+                <div>
+                    <a href="/history" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to History
+                    </a>
+                    <button onclick="window.print()" class="btn btn-outline-primary ms-2">
+                        <i class="bi bi-printer"></i> Print
+                    </button>
+                </div>
+            </div>
+
+            <!-- Overall Score Card -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-3 text-center">
+                            <div class="score-gauge" style="width: 150px; height: 150px; margin: 0 auto;">
+                                <div class="score-circle" style="--score: {{ report.overall_score|int }}">
+                                    <div class="score-inner">
+                                        <div class="score-value" style="font-size: 2.5rem;">{{ report.overall_score|int }}</div>
+                                        <div class="score-label">Accuracy</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <h4>{{ article.title }}</h4>
+                            {% if article.url and article.url != 'user_provided_text' %}
+                            <p class="text-muted mb-2">
+                                <i class="bi bi-link-45deg"></i> 
+                                <a href="{{ article.url }}" target="_blank">{{ article.url[:80] }}...</a>
+                            </p>
+                            {% endif %}
+                            <p class="mb-2"><strong>Confidence Level:</strong> 
+                                <span class="confidence-badge confidence-{{ report.confidence_level }}">
+                                    {{ report.confidence_level.upper() }}
+                                </span>
+                            </p>
+                            <p class="mb-2"><strong>Sources Analyzed:</strong> {{ report.sources_checked }}</p>
+                            <p class="mb-0"><strong>Analysis Date:</strong> {{ report.created_at.strftime('%B %d, %Y at %I:%M %p') }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary and Recommendations -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0"><i class="bi bi-clipboard-check"></i> Summary</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>{{ report.summary }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-warning">
+                            <h5 class="mb-0"><i class="bi bi-lightbulb"></i> Recommendations</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>{{ report.recommendations }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Original Article Facts -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="bi bi-list-check"></i> Step 1: Extracted Facts from Original Article</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        {% for category, facts_list in original_facts.items() %}
+                        {% if facts_list %}
+                        <div class="col-md-6 mb-3">
+                            <h6 class="text-uppercase text-primary">
+                                <i class="bi bi-{% if category == 'who' %}person{% elif category == 'what' %}journal-text{% elif category == 'when' %}calendar{% elif category == 'where' %}geo-alt{% else %}chat-quote{% endif %}"></i>
+                                {{ category }}
+                            </h6>
+                            <ul class="list-group list-group-flush">
+                                {% for fact in facts_list %}
+                                <li class="list-group-item">{{ fact }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Source Analysis -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="bi bi-search"></i> Step 2 & 3: Source Search and Analysis</h5>
+                </div>
+                <div class="card-body">
+                    {% if analyses %}
+                    <div class="accordion" id="sourcesAccordion">
+                        {% for analysis_data in analyses %}
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="heading{{ loop.index }}">
+                                <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}">
+                                    <div class="w-100">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span>
+                                                <i class="bi bi-file-earmark-text"></i>
+                                                <strong>Source {{ loop.index }}:</strong> {{ analysis_data.comparison_article.title[:60] }}...
+                                            </span>
+                                            <span class="badge {% if analysis_data.analysis.accuracy_score >= 80 %}bg-success{% elif analysis_data.analysis.accuracy_score >= 60 %}bg-warning{% else %}bg-danger{% endif %} ms-2">
+                                                Score: {{ analysis_data.analysis.accuracy_score|int }}
+                                            </span>
+                                        </div>
+                                        <small class="text-muted d-block mt-1">
+                                            {{ analysis_data.analysis_details.source_domain }} 
+                                            ({{ analysis_data.analysis_details.source_type }})
+                                        </small>
+                                    </div>
+                                </button>
+                            </h2>
+                            <div id="collapse{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" 
+                                 data-bs-parent="#sourcesAccordion">
+                                <div class="accordion-body">
+                                    <!-- Source URL -->
+                                    <p class="mb-3">
+                                        <strong>URL:</strong> 
+                                        <a href="{{ analysis_data.comparison_article.url }}" target="_blank">
+                                            {{ analysis_data.comparison_article.url }}
+                                            <i class="bi bi-box-arrow-up-right small"></i>
+                                        </a>
+                                    </p>
+
+                                    <!-- Matching Facts -->
+                                    <div class="mb-3">
+                                        <h6 class="text-success">
+                                            <i class="bi bi-check-circle-fill"></i> 
+                                            Matching Facts ({{ analysis_data.matching_facts|length }})
+                                        </h6>
+                                        {% if analysis_data.matching_facts %}
+                                        <ul class="list-group">
+                                            {% for match in analysis_data.matching_facts %}
+                                            <li class="list-group-item list-group-item-success">
+                                                {% if match is mapping %}
+                                                    <strong>{{ match.category|upper }}:</strong> {{ match.fact }}
+                                                    <span class="badge bg-success float-end">{{ match.confidence }}</span>
+                                                {% else %}
+                                                    {{ match }}
+                                                {% endif %}
+                                            </li>
+                                            {% endfor %}
+                                        </ul>
+                                        {% else %}
+                                        <p class="text-muted">No matching facts found.</p>
+                                        {% endif %}
+                                    </div>
+
+                                    <!-- Conflicting Facts -->
+                                    <div class="mb-3">
+                                        <h6 class="text-danger">
+                                            <i class="bi bi-x-circle-fill"></i> 
+                                            Conflicting Facts ({{ analysis_data.conflicting_facts|length }})
+                                        </h6>
+                                        {% if analysis_data.conflicting_facts %}
+                                        <div class="table-responsive">
+                                            <table class="table table-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Original</th>
+                                                        <th>This Source</th>
+                                                        <th>Type</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for conflict in analysis_data.conflicting_facts %}
+                                                    <tr class="table-danger">
+                                                        <td>{{ conflict.original if conflict is mapping else conflict }}</td>
+                                                        <td>{{ conflict.comparison if conflict is mapping else '' }}</td>
+                                                        <td>
+                                                            {% if conflict is mapping %}
+                                                            <span class="badge bg-danger">{{ conflict.conflict_type }}</span>
+                                                            {% endif %}
+                                                        </td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        {% else %}
+                                        <p class="text-muted">No conflicting facts found.</p>
+                                        {% endif %}
+                                    </div>
+
+                                    <!-- Facts from This Source -->
+                                    <div class="mb-3">
+                                        <h6 class="text-primary">
+                                            <i class="bi bi-journal-text"></i> 
+                                            All Facts Extracted from This Source
+                                        </h6>
+                                        <div class="row">
+                                            {% for category, facts_list in analysis_data.comparison_facts.items() %}
+                                            {% if facts_list %}
+                                            <div class="col-md-6 mb-2">
+                                                <strong class="text-uppercase">{{ category }}:</strong>
+                                                <ul class="small">
+                                                    {% for fact in facts_list[:3] %}
+                                                    <li>{{ fact }}</li>
+                                                    {% endfor %}
+                                                    {% if facts_list|length > 3 %}
+                                                    <li class="text-muted">... and {{ facts_list|length - 3 }} more</li>
+                                                    {% endif %}
+                                                </ul>
+                                            </div>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Analysis Notes -->
+                                    {% if analysis_data.analysis_details.analysis_notes %}
+                                    <div class="alert alert-info">
+                                        <strong>Analysis Notes:</strong> {{ analysis_data.analysis_details.analysis_notes }}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No sources were analyzed.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Score Breakdown -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Step 4: Score Breakdown</h5>
+                </div>
+                <div class="card-body">
+                    {% if detailed_results.score_breakdown %}
+                    <div class="row">
+                        {% for source_type, data in detailed_results.score_breakdown.items() %}
+                        <div class="col-md-4 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <h6 class="text-uppercase">{{ source_type.replace('_', ' ') }}</h6>
+                                    <h3 class="{% if data.average_score >= 80 %}text-success{% elif data.average_score >= 60 %}text-warning{% else %}text-danger{% endif %}">
+                                        {{ data.average_score|int }}
+                                    </h3>
+                                    <p class="small text-muted">{{ data.count }} source(s)</p>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if detailed_results.fact_verification_details %}
+                    <div class="mt-3">
+                        <h6>Fact Verification Statistics</h6>
+                        <div class="progress" style="height: 30px;">
+                            <div class="progress-bar bg-success" style="width: {{ (detailed_results.fact_verification_details.verification_ratio * 100)|int }}%">
+                                {{ detailed_results.fact_verification_details.total_matching_facts }} Matching
+                            </div>
+                            <div class="progress-bar bg-danger" style="width: {{ (100 - (detailed_results.fact_verification_details.verification_ratio * 100))|int }}%">
+                                {{ detailed_results.fact_verification_details.total_conflicting_facts }} Conflicting
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    @media print {
+        .btn, .accordion-button::after {
+            display: none !important;
+        }
+        .accordion-collapse {
+            display: block !important;
+            height: auto !important;
+        }
+    }
+</style>
+{% endblock %}
