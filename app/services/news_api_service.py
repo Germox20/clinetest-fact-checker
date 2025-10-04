@@ -169,44 +169,73 @@ class NewsAPIService:
     
     def build_search_query(self, facts):
         """
-        Build search query from extracted facts.
+        Build search query from extracted facts with priority on WHAT and CLAIMS.
         
         Args:
-            facts (dict): Dictionary of facts by category
+            facts (dict): Dictionary of facts with hierarchical structure
             
         Returns:
             str: Search query string
         """
         query_parts = []
         
-        # Add key entities (who)
-        if facts.get('who'):
-            # Take first 2 most important entities
-            entities = facts['who'][:2]
-            for entity in entities:
-                # Extract just the entity name (before colon if present)
-                entity_name = entity.split(':')[0].strip()
-                query_parts.append(entity_name)
+        # PRIORITY 1: High-importance WHAT facts with full context
+        if facts.get('what_facts'):
+            for fact in facts['what_facts']:
+                if not isinstance(fact, dict):
+                    continue
+                    
+                if fact.get('importance') == 'high':
+                    # Add main event (truncated to key words)
+                    event = fact.get('event', '')
+                    if isinstance(event, str) and event:
+                        event_words = ' '.join(event.split()[:10])
+                        query_parts.append(f'"{event_words}"')
+                    
+                    # Add one key WHO entity for context
+                    who_list = fact.get('related_who', [])
+                    if isinstance(who_list, list) and who_list:
+                        who_entity = who_list[0]
+                        if isinstance(who_entity, str):
+                            query_parts.append(who_entity)
+                    
+                    # Only process first high-importance WHAT fact
+                    break
         
-        # Add main events (what)
-        if facts.get('what'):
-            # Take first main event
-            events = facts['what'][:1]
-            for event in events:
-                # Extract key words (first few words)
-                event_words = ' '.join(event.split()[:8])
-                query_parts.append(event_words)
+        # PRIORITY 2: High-importance CLAIMS
+        if facts.get('claims'):
+            for claim in facts['claims']:
+                if not isinstance(claim, dict):
+                    continue
+                    
+                if claim.get('importance') == 'high':
+                    # Add claim text (truncated)
+                    claim_text = claim.get('claim', '')
+                    if isinstance(claim_text, str) and claim_text:
+                        claim_words = ' '.join(claim_text.split()[:10])
+                        query_parts.append(f'"{claim_words}"')
+                    
+                    # Only process first high-importance CLAIM
+                    break
         
-        # Add location if specific
-        if facts.get('where'):
-            locations = facts['where'][:1]
-            query_parts.extend(locations)
+        # PRIORITY 3: Medium-importance WHAT facts (if we have room)
+        if len(query_parts) < 2 and facts.get('what_facts'):
+            for fact in facts['what_facts']:
+                if not isinstance(fact, dict):
+                    continue
+                    
+                if fact.get('importance') == 'medium':
+                    event = fact.get('event', '')
+                    if isinstance(event, str) and event:
+                        event_words = ' '.join(event.split()[:8])
+                        query_parts.append(event_words)
+                        break
         
         # Combine into query
         query = ' '.join(query_parts)
         
-        # Limit query length
+        # Limit query length (keep it focused)
         if len(query) > 200:
             query = query[:200]
         
-        return query
+        return query if query else "news"

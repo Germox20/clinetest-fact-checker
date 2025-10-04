@@ -1,0 +1,4 @@
+The app works, but it finds several news that are not related to the original for the comparison. We need to change the database structure to consider when a fact is related to other. WHAT facts should be the "biggest structure" as they may contain a WHO, a WHERE or a WHEN.
+CLAIMS may also relate to WHO, WHERE or WHEN. 
+Use mainly WHAT and CLAIM facts when searching for relevant sources and prioritize these when comparing. Provide an explanation of how the current prompts for the AI Agents work and what changes would be mase.
+Add the script required to migrate the database, erasing the exising db.

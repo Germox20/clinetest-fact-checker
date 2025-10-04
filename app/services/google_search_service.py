@@ -146,44 +146,66 @@ class GoogleSearchService:
     
     def _build_search_queries(self, facts):
         """
-        Build search queries from facts.
+        Build search queries from facts (hierarchical structure).
         
         Args:
-            facts (dict): Dictionary of facts by category
+            facts (dict): Dictionary of facts with hierarchical structure
             
         Returns:
             list: List of search query strings
         """
         queries = []
         
-        # Query 1: Main entities and events
-        query_parts = []
-        if facts.get('who'):
-            # Take top 2 entities
-            for entity in facts['who'][:2]:
-                entity_name = entity.split(':')[0].strip()
-                query_parts.append(entity_name)
+        # Query 1: High-importance WHAT facts with context
+        if facts.get('what_facts'):
+            for fact in facts['what_facts']:
+                if not isinstance(fact, dict):
+                    continue
+                    
+                if fact.get('importance') == 'high':
+                    query_parts = []
+                    
+                    # Add event
+                    event = fact.get('event', '')
+                    if isinstance(event, str) and event:
+                        event_words = ' '.join(event.split()[:10])
+                        query_parts.append(f'"{event_words}"')
+                    
+                    # Add key WHO entity
+                    who_list = fact.get('related_who', [])
+                    if isinstance(who_list, list) and who_list:
+                        who_entity = who_list[0]
+                        if isinstance(who_entity, str):
+                            query_parts.append(who_entity)
+                    
+                    if query_parts:
+                        queries.append(' '.join(query_parts))
+                        break  # Only first high-importance fact
         
-        if facts.get('what'):
-            # Take main event
-            event = facts['what'][0] if facts['what'] else ''
-            event_words = ' '.join(event.split()[:10])
-            query_parts.append(event_words)
-        
-        if query_parts:
-            queries.append(' '.join(query_parts))
-        
-        # Query 2: Specific claims
+        # Query 2: High-importance CLAIMS
         if facts.get('claims'):
-            for claim in facts['claims'][:2]:
-                # Extract key words from claim
-                claim_words = ' '.join(claim.split()[:15])
-                queries.append(claim_words)
+            for claim in facts['claims']:
+                if not isinstance(claim, dict):
+                    continue
+                    
+                if claim.get('importance') == 'high':
+                    claim_text = claim.get('claim', '')
+                    if isinstance(claim_text, str) and claim_text:
+                        claim_words = ' '.join(claim_text.split()[:15])
+                        queries.append(f'"{claim_words}"')
+                        break  # Only first high-importance claim
         
-        # Query 3: Location-specific if available
-        if facts.get('where') and facts.get('what'):
-            location = facts['where'][0]
-            event = ' '.join(facts['what'][0].split()[:8])
-            queries.append(f"{event} {location}")
+        # Query 3: Medium-importance WHAT facts (if needed)
+        if len(queries) < 2 and facts.get('what_facts'):
+            for fact in facts['what_facts']:
+                if not isinstance(fact, dict):
+                    continue
+                    
+                if fact.get('importance') == 'medium':
+                    event = fact.get('event', '')
+                    if isinstance(event, str) and event:
+                        event_words = ' '.join(event.split()[:10])
+                        queries.append(event_words)
+                        break
         
-        return queries
+        return queries if queries else ["news"]

@@ -24,21 +24,33 @@ class SearchAgent:
         Returns:
             list: List of source dictionaries with article data
         """
+        print("\n" + "="*60)
+        print("STEP 2: Searching for corroborating sources")
+        print("="*60)
+        
         sources = []
         
         # Search using News API
+        print("\n→ Searching News API...")
         news_sources = self._search_news_sources(facts, max_results=max_sources // 2)
+        print(f"✓ Found {len(news_sources)} sources from News API")
         sources.extend(news_sources)
         
         # Search using Google Custom Search
+        print("\n→ Searching Google Custom Search...")
         google_sources = self._search_google_sources(facts, max_results=max_sources // 2)
+        print(f"✓ Found {len(google_sources)} sources from Google Search")
         sources.extend(google_sources)
         
         # Remove duplicates based on URL
         unique_sources = self._deduplicate_sources(sources)
+        print(f"\n✓ Total unique sources found: {len(unique_sources)}")
         
         # Limit to max_sources
-        return unique_sources[:max_sources]
+        final_sources = unique_sources[:max_sources]
+        print(f"✓ Will analyze top {len(final_sources)} sources")
+        
+        return final_sources
     
     def fetch_and_store_source(self, url, source_type=None):
         """
@@ -122,12 +134,16 @@ class SearchAgent:
         
         # Build search query from facts
         query = self.news_api.build_search_query(facts)
+        print(f"  News API Query: '{query}'")
         
         if not query:
+            print("  ✗ No query generated")
             return sources
         
         # Search for articles
+        print(f"  → Calling News API with query...")
         articles = self.news_api.search_articles(query, max_results=max_results)
+        print(f"  ✓ News API returned {len(articles)} articles")
         
         for article in articles:
             if article.get('url'):
@@ -157,7 +173,9 @@ class SearchAgent:
         sources = []
         
         # Search for related content
+        print(f"  → Calling Google Custom Search...")
         results = self.google_search.search_for_facts(facts, max_results_per_query=max_results)
+        print(f"  ✓ Google Search returned {len(results)} results")
         
         for result in results[:max_results]:
             if result.get('url'):

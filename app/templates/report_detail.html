@@ -152,18 +152,109 @@
                                             Matching Facts ({{ analysis_data.matching_facts|length }})
                                         </h6>
                                         {% if analysis_data.matching_facts %}
-                                        <ul class="list-group">
-                                            {% for match in analysis_data.matching_facts %}
-                                            <li class="list-group-item list-group-item-success">
+                                        {% for match in analysis_data.matching_facts %}
+                                        <div class="card mb-2 border-success">
+                                            <div class="card-body bg-success bg-opacity-10 p-3">
+                                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                                    <div class="flex-grow-1">
+                                                        <span class="badge bg-success me-2">
+                                                            {% if match is mapping and match.category %}
+                                                                {{ match.category|upper }}
+                                                            {% else %}
+                                                                FACT
+                                                            {% endif %}
+                                                        </span>
+                                                        {% if match is mapping and match.match_strength %}
+                                                        <span class="badge {% if match.match_strength == 'strong' %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                                                            {{ match.match_strength }}
+                                                        </span>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="row">
+                                                    <div class="col-md-6 mb-2">
+                                                        <strong class="text-success">Original:</strong>
+                                                        <p class="mb-1 small">
+                                                            {% if match is mapping and match.original_fact %}
+                                                                {{ match.original_fact }}
+                                                            {% elif match is mapping and match.fact %}
+                                                                {{ match.fact }}
+                                                            {% else %}
+                                                                {{ match }}
+                                                            {% endif %}
+                                                        </p>
+                                                    </div>
+                                                    <div class="col-md-6 mb-2">
+                                                        <strong class="text-success">This Source:</strong>
+                                                        <p class="mb-1 small">
+                                                            {% if match is mapping and match.comparison_fact %}
+                                                                {{ match.comparison_fact }}
+                                                            {% elif match is mapping and match.fact %}
+                                                                <em class="text-muted">(Same as original)</em>
+                                                            {% else %}
+                                                                <em class="text-muted">-</em>
+                                                            {% endif %}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Expandable Related Entities -->
                                                 {% if match is mapping %}
-                                                    <strong>{{ match.category|upper }}:</strong> {{ match.fact }}
-                                                    <span class="badge bg-success float-end">{{ match.confidence }}</span>
-                                                {% else %}
-                                                    {{ match }}
+                                                {% set has_entities = (match.related_who and match.related_who|length > 0) or (match.related_where and match.related_where|length > 0) or (match.related_when and match.related_when|length > 0) %}
+                                                {% if has_entities %}
+                                                <div class="mt-2">
+                                                    <button class="btn btn-sm btn-outline-success" type="button" data-bs-toggle="collapse" data-bs-target="#matchContext{{ loop.parent.loop.index }}_{{ loop.index }}" aria-expanded="false">
+                                                        <i class="bi bi-chevron-down"></i> Show Context (WHO/WHERE/WHEN)
+                                                    </button>
+                                                    <div class="collapse mt-2" id="matchContext{{ loop.parent.loop.index }}_{{ loop.index }}">
+                                                        <div class="card card-body bg-white border-success p-2">
+                                                            <div class="row">
+                                                                {% if match.related_who and match.related_who|length > 0 %}
+                                                                <div class="col-md-4 mb-2">
+                                                                    <strong class="text-success small">
+                                                                        <i class="bi bi-person"></i> WHO:
+                                                                    </strong>
+                                                                    <ul class="small mb-0 ps-3">
+                                                                        {% for who in match.related_who %}
+                                                                        <li>{{ who }}</li>
+                                                                        {% endfor %}
+                                                                    </ul>
+                                                                </div>
+                                                                {% endif %}
+                                                                {% if match.related_where and match.related_where|length > 0 %}
+                                                                <div class="col-md-4 mb-2">
+                                                                    <strong class="text-success small">
+                                                                        <i class="bi bi-geo-alt"></i> WHERE:
+                                                                    </strong>
+                                                                    <ul class="small mb-0 ps-3">
+                                                                        {% for where in match.related_where %}
+                                                                        <li>{{ where }}</li>
+                                                                        {% endfor %}
+                                                                    </ul>
+                                                                </div>
+                                                                {% endif %}
+                                                                {% if match.related_when and match.related_when|length > 0 %}
+                                                                <div class="col-md-4 mb-2">
+                                                                    <strong class="text-success small">
+                                                                        <i class="bi bi-calendar"></i> WHEN:
+                                                                    </strong>
+                                                                    <ul class="small mb-0 ps-3">
+                                                                        {% for when in match.related_when %}
+                                                                        <li>{{ when }}</li>
+                                                                        {% endfor %}
+                                                                    </ul>
+                                                                </div>
+                                                                {% endif %}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                                 {% endif %}
-                                            </li>
-                                            {% endfor %}
-                                        </ul>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                        {% endfor %}
                                         {% else %}
                                         <p class="text-muted">No matching facts found.</p>
                                         {% endif %}
@@ -176,30 +267,106 @@
                                             Conflicting Facts ({{ analysis_data.conflicting_facts|length }})
                                         </h6>
                                         {% if analysis_data.conflicting_facts %}
-                                        <div class="table-responsive">
-                                            <table class="table table-sm">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Original</th>
-                                                        <th>This Source</th>
-                                                        <th>Type</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {% for conflict in analysis_data.conflicting_facts %}
-                                                    <tr class="table-danger">
-                                                        <td>{{ conflict.original if conflict is mapping else conflict }}</td>
-                                                        <td>{{ conflict.comparison if conflict is mapping else '' }}</td>
-                                                        <td>
-                                                            {% if conflict is mapping %}
-                                                            <span class="badge bg-danger">{{ conflict.conflict_type }}</span>
+                                        {% for conflict in analysis_data.conflicting_facts %}
+                                        <div class="card mb-2 border-danger">
+                                            <div class="card-body bg-danger bg-opacity-10 p-3">
+                                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                                    <div class="flex-grow-1">
+                                                        <span class="badge bg-danger me-2">
+                                                            {% if conflict is mapping and conflict.category %}
+                                                                {{ conflict.category|upper }}
+                                                            {% else %}
+                                                                CONFLICT
                                                             {% endif %}
-                                                        </td>
-                                                    </tr>
-                                                    {% endfor %}
-                                                </tbody>
-                                            </table>
+                                                        </span>
+                                                        {% if conflict is mapping and conflict.conflict_type %}
+                                                        <span class="badge bg-secondary">
+                                                            {{ conflict.conflict_type|replace('_', ' ')|title }}
+                                                        </span>
+                                                        {% endif %}
+                                                        {% if conflict is mapping and conflict.conflict_severity %}
+                                                        <span class="badge {% if conflict.conflict_severity == 'high' %}bg-danger{% elif conflict.conflict_severity == 'medium' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                                            {{ conflict.conflict_severity }} severity
+                                                        </span>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="row">
+                                                    <div class="col-md-6 mb-2">
+                                                        <strong class="text-danger">Original:</strong>
+                                                        <p class="mb-1 small">
+                                                            {{ conflict.original if conflict is mapping else conflict }}
+                                                        </p>
+                                                    </div>
+                                                    <div class="col-md-6 mb-2">
+                                                        <strong class="text-danger">This Source:</strong>
+                                                        <p class="mb-1 small">
+                                                            {% if conflict is mapping and conflict.comparison %}
+                                                                {{ conflict.comparison }}
+                                                            {% else %}
+                                                                <em class="text-muted">-</em>
+                                                            {% endif %}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Expandable Related Entities for Conflicts -->
+                                                {% if conflict is mapping %}
+                                                {% set has_entities = (conflict.related_who and conflict.related_who|length > 0) or (conflict.related_where and conflict.related_where|length > 0) or (conflict.related_when and conflict.related_when|length > 0) %}
+                                                {% if has_entities %}
+                                                <div class="mt-2">
+                                                    <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="collapse" data-bs-target="#conflictContext{{ loop.parent.loop.index }}_{{ loop.index }}" aria-expanded="false">
+                                                        <i class="bi bi-chevron-down"></i> Show Context (WHO/WHERE/WHEN)
+                                                    </button>
+                                                    <div class="collapse mt-2" id="conflictContext{{ loop.parent.loop.index }}_{{ loop.index }}">
+                                                        <div class="card card-body bg-white border-danger p-2">
+                                                            <div class="row">
+                                                                {% if conflict.related_who and conflict.related_who|length > 0 %}
+                                                                <div class="col-md-4 mb-2">
+                                                                    <strong class="text-danger small">
+                                                                        <i class="bi bi-person"></i> WHO:
+                                                                    </strong>
+                                                                    <ul class="small mb-0 ps-3">
+                                                                        {% for who in conflict.related_who %}
+                                                                        <li>{{ who }}</li>
+                                                                        {% endfor %}
+                                                                    </ul>
+                                                                </div>
+                                                                {% endif %}
+                                                                {% if conflict.related_where and conflict.related_where|length > 0 %}
+                                                                <div class="col-md-4 mb-2">
+                                                                    <strong class="text-danger small">
+                                                                        <i class="bi bi-geo-alt"></i> WHERE:
+                                                                    </strong>
+                                                                    <ul class="small mb-0 ps-3">
+                                                                        {% for where in conflict.related_where %}
+                                                                        <li>{{ where }}</li>
+                                                                        {% endfor %}
+                                                                    </ul>
+                                                                </div>
+                                                                {% endif %}
+                                                                {% if conflict.related_when and conflict.related_when|length > 0 %}
+                                                                <div class="col-md-4 mb-2">
+                                                                    <strong class="text-danger small">
+                                                                        <i class="bi bi-calendar"></i> WHEN:
+                                                                    </strong>
+                                                                    <ul class="small mb-0 ps-3">
+                                                                        {% for when in conflict.related_when %}
+                                                                        <li>{{ when }}</li>
+                                                                        {% endfor %}
+                                                                    </ul>
+                                                                </div>
+                                                                {% endif %}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {% endif %}
+                                                {% endif %}
+                                            </div>
                                         </div>
+                                        {% endfor %}
                                         {% else %}
                                         <p class="text-muted">No conflicting facts found.</p>
                                         {% endif %}
