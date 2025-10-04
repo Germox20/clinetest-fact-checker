@@ -44,16 +44,56 @@ class Article(db.Model):
 
 
 class Fact(db.Model):
-    """Model for storing extracted facts from articles."""
+    """Model for storing extracted facts from articles with hierarchical structure."""
     
     __tablename__ = 'facts'
     
     id = db.Column(db.Integer, primary_key=True)
     article_id = db.Column(db.Integer, db.ForeignKey('articles.id'), nullable=False)
     fact_text = db.Column(db.Text, nullable=False)
-    category = db.Column(db.String(50))  # 'who', 'what', 'when', 'where', 'claim'
+    category = db.Column(db.String(50))  # 'what' or 'claim' (primary categories)
     confidence = db.Column(db.Float)  # Confidence in fact extraction (0-1)
+    
+    # Hierarchical relationships - only WHAT and CLAIM are primary
+    parent_fact_id = db.Column(db.Integer, db.ForeignKey('facts.id'), nullable=True)
+    
+    # Related entities stored as JSON (WHO, WHERE, WHEN are now properties of WHAT/CLAIM)
+    related_who = db.Column(db.Text)  # JSON array of WHO entities
+    related_where = db.Column(db.Text)  # JSON array of WHERE locations  
+    related_when = db.Column(db.Text)  # JSON array of WHEN timeframes
+    
+    # Importance score for search prioritization (0.0-1.0)
+    importance_score = db.Column(db.Float, default=0.5)
+    
     extracted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    child_facts = db.relationship('Fact', backref=db.backref('parent_fact', remote_side=[id]), 
+                                 cascade='all, delete-orphan')
+    
+    def set_related_who(self, who_list):
+        """Store related WHO entities as JSON."""
+        self.related_who = json.dumps(who_list) if who_list else None
+    
+    def get_related_who(self):
+        """Retrieve related WHO entities from JSON."""
+        return json.loads(self.related_who) if self.related_who else []
+    
+    def set_related_where(self, where_list):
+        """Store related WHERE locations as JSON."""
+        self.related_where = json.dumps(where_list) if where_list else None
+    
+    def get_related_where(self):
+        """Retrieve related WHERE locations from JSON."""
+        return json.loads(self.related_where) if self.related_where else []
+    
+    def set_related_when(self, when_list):
+        """Store related WHEN timeframes as JSON."""
+        self.related_when = json.dumps(when_list) if when_list else None
+    
+    def get_related_when(self):
+        """Retrieve related WHEN timeframes from JSON."""
+        return json.loads(self.related_when) if self.related_when else []
     
     def to_dict(self):
         """Convert fact to dictionary."""
@@ -63,11 +103,16 @@ class Fact(db.Model):
             'fact_text': self.fact_text,
             'category': self.category,
             'confidence': self.confidence,
+            'importance_score': self.importance_score,
+            'related_who': self.get_related_who(),
+            'related_where': self.get_related_where(),
+            'related_when': self.get_related_when(),
+            'parent_fact_id': self.parent_fact_id,
             'extracted_at': self.extracted_at.isoformat() if self.extracted_at else None
         }
     
     def __repr__(self):
-        return f'<Fact {self.id}: {self.fact_text[:50]}>'
+        return f'<Fact {self.id}: {self.category} - {self.fact_text[:50]}>'
 
 
 class Analysis(db.Model):

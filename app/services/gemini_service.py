@@ -19,14 +19,14 @@ class GeminiService:
     
     def extract_facts(self, article_text, article_title=None):
         """
-        Extract facts from article text using Gemini.
+        Extract facts from article text using Gemini with hierarchical structure.
         
         Args:
             article_text (str): The article content to analyze
             article_title (str): Optional article title for context
             
         Returns:
-            dict: Dictionary containing extracted facts organized by category
+            dict: Dictionary containing extracted facts organized hierarchically
         """
         prompt = self._build_fact_extraction_prompt(article_text, article_title)
         
@@ -40,17 +40,14 @@ class GeminiService:
         except Exception as e:
             print(f"Error extracting facts with Gemini: {e}")
             return {
-                'who': [],
-                'what': [],
-                'when': [],
-                'where': [],
+                'what_facts': [],
                 'claims': [],
                 'error': str(e)
             }
     
     def compare_facts(self, original_facts, comparison_facts):
         """
-        Compare facts from two sources using Gemini.
+        Compare facts from two sources using Gemini with context-aware matching.
         
         Args:
             original_facts (dict): Facts from the original article
@@ -108,43 +105,75 @@ Summary:"""
             return "Error generating summary"
     
     def _build_fact_extraction_prompt(self, article_text, article_title=None):
-        """Build prompt for fact extraction."""
+        """Build prompt for hierarchical fact extraction."""
         title_context = f"\nTitle: {article_title}\n" if article_title else ""
         
-        prompt = f"""You are a fact-checking assistant. Analyze the following article and extract key facts organized by category.
+        prompt = f"""You are a fact-checking assistant. Analyze the following article and extract facts using a HIERARCHICAL structure where events and claims are primary, and people/places/times are related entities.
 
 {title_context}
 Article:
 {article_text[:4000]}
 
-Extract facts in the following categories and return them in JSON format:
+Extract facts in TWO PRIMARY CATEGORIES:
 
-1. WHO: People, organizations, entities mentioned (with roles)
-2. WHAT: Events, actions, occurrences described
-3. WHEN: Dates, times, timeframes mentioned
-4. WHERE: Locations, places mentioned
-5. CLAIMS: Specific claims, statements, or assertions made
+1. **WHAT FACTS** (Events/Actions/Occurrences):
+   - Main event or action described
+   - Related WHO: entities involved (people, organizations)
+   - Related WHERE: locations where it occurred
+   - Related WHEN: timeframe/date when it occurred
+   - Importance: high/medium/low (based on centrality to article)
 
-Return ONLY a valid JSON object with this structure:
+2. **CLAIMS** (Assertions/Statements):
+   - Main claim, statement, or assertion
+   - Related WHO: who made the claim or who it's about
+   - Related WHERE: where it applies or was made
+   - Related WHEN: when it was made or applies
+   - Importance: high/medium/low (based on significance)
+
+**IMPORTANCE GUIDELINES:**
+- HIGH: Core events/claims that define the article's main topic
+- MEDIUM: Supporting details that add context
+- LOW: Minor details or tangential information
+
+Return ONLY a valid JSON object with this EXACT structure:
 {{
-  "who": ["entity1: role/description", "entity2: role/description"],
-  "what": ["event1 description", "event2 description"],
-  "when": ["date/time1", "date/time2"],
-  "where": ["location1", "location2"],
-  "claims": ["claim1", "claim2"]
+  "what_facts": [
+    {{
+      "event": "Clear description of the main event or action (2-3 sentences max)",
+      "related_who": ["Person/organization involved", "Another entity"],
+      "related_where": ["Location"],
+      "related_when": ["Timeframe or date"],
+      "importance": "high",
+      "confidence": "high"
+    }}
+  ],
+  "claims": [
+    {{
+      "claim": "Specific claim or assertion made (2-3 sentences max)",
+      "related_who": ["Who made it or who it's about"],
+      "related_where": ["Where it applies"],
+      "related_when": ["When it was made/applies"],
+      "importance": "high",
+      "confidence": "high"
+    }}
+  ]
 }}
 
-Each fact should be concise (1-2 sentences max) and specific. Include confidence level (high/medium/low) if relevant.
+**CRITICAL RULES:**
+1. Each WHAT fact must include the event PLUS its context (who/where/when)
+2. Each CLAIM must include the assertion PLUS its context
+3. Prioritize HIGH importance for facts that are central to the article
+4. Keep event/claim descriptions focused and specific
+5. Include 3-7 WHAT facts and 2-5 CLAIMS (prioritize quality over quantity)
+6. Confidence levels: "high" (clearly stated), "medium" (implied), "low" (uncertain)
 """
         return prompt
     
     def _build_fact_comparison_prompt(self, original_facts, comparison_facts):
-        """Build prompt for fact comparison."""
-        prompt = f"""You are a fact-checking assistant. Compare the facts from two sources and identify:
-1. Matching facts (same information in both)
-2. Conflicting facts (contradictory information)
-3. Facts unique to the original source
-4. Facts unique to the comparison source
+        """Build prompt for context-aware fact comparison."""
+        prompt = f"""You are a fact-checking assistant. Compare facts from two sources using CONTEXT-AWARE matching. 
+
+**IMPORTANT**: Facts match only when BOTH the event/claim AND its context (who/where/when) align. Don't match based on shared entities alone.
 
 Original Source Facts:
 {json.dumps(original_facts, indent=2)}
@@ -152,37 +181,68 @@ Original Source Facts:
 Comparison Source Facts:
 {json.dumps(comparison_facts, indent=2)}
 
-Return ONLY a valid JSON object with this structure:
+**MATCHING RULES:**
+1. WHAT facts match if: same event/action + similar who/where/when context
+2. CLAIMS match if: same assertion + similar context
+3. Partial matches (same event, different details) are CONFLICTS, not matches
+4. Shared entities without same event context are NOT matches
+
+**CONFLICT TYPES:**
+- "contradiction": Directly opposite information
+- "partial_mismatch": Same event but different details (dates, numbers, participants)
+- "emphasis_difference": Same event but different focus or interpretation
+- "context_mismatch": Same entity but different events
+
+Return ONLY a valid JSON object:
 {{
   "matching": [
     {{
-      "fact": "description of matching fact",
-      "confidence": "high/medium/low",
-      "category": "who/what/when/where/claims"
+      "original_fact": "Full fact from original with context",
+      "comparison_fact": "Matching fact from comparison with context",
+      "match_strength": "strong/moderate",
+      "category": "what/claim"
     }}
   ],
   "conflicting": [
     {{
-      "original": "fact from original",
-      "comparison": "contradictory fact from comparison",
-      "conflict_type": "contradiction/partial_mismatch/emphasis_difference",
-      "category": "who/what/when/where/claims"
+      "original": "Fact from original",
+      "comparison": "Conflicting fact from comparison",
+      "conflict_type": "contradiction/partial_mismatch/emphasis_difference/context_mismatch",
+      "conflict_severity": "high/medium/low",
+      "category": "what/claim"
     }}
   ],
-  "unique_to_original": ["fact1", "fact2"],
-  "unique_to_comparison": ["fact1", "fact2"],
-  "analysis_notes": "Brief analysis of overall agreement"
+  "unique_to_original": [
+    {{
+      "fact": "Fact only in original",
+      "category": "what/claim",
+      "significance": "high/medium/low"
+    }}
+  ],
+  "unique_to_comparison": [
+    {{
+      "fact": "Fact only in comparison",
+      "category": "what/claim",
+      "significance": "high/medium/low"
+    }}
+  ],
+  "relevance_score": 0.0,
+  "analysis_notes": "Brief analysis focusing on whether sources cover the SAME EVENTS/CLAIMS"
 }}
 
-Be precise and objective in identifying matches and conflicts.
+**RELEVANCE SCORE** (0.0-1.0):
+- 0.8-1.0: Highly relevant, covers same core events
+- 0.5-0.7: Moderately relevant, some overlap
+- 0.0-0.4: Low relevance, different topics despite shared entities
+
+Be strict about matching - similar context is required, not just shared names.
 """
         return prompt
     
     def _parse_fact_extraction_response(self, response_text):
-        """Parse Gemini response for fact extraction."""
+        """Parse Gemini response for hierarchical fact extraction."""
         try:
             # Try to extract JSON from response
-            # Sometimes Gemini includes markdown code blocks
             if '```json' in response_text:
                 json_start = response_text.find('```json') + 7
                 json_end = response_text.find('```', json_start)
@@ -196,22 +256,18 @@ Be precise and objective in identifying matches and conflicts.
             
             facts = json.loads(json_text)
             
-            # Ensure all required keys exist
-            required_keys = ['who', 'what', 'when', 'where', 'claims']
-            for key in required_keys:
-                if key not in facts:
-                    facts[key] = []
+            # Ensure required keys exist
+            if 'what_facts' not in facts:
+                facts['what_facts'] = []
+            if 'claims' not in facts:
+                facts['claims'] = []
             
             return facts
         except json.JSONDecodeError as e:
             print(f"Error parsing Gemini response as JSON: {e}")
             print(f"Response text: {response_text[:500]}")
-            # Return empty structure on parse error
             return {
-                'who': [],
-                'what': [],
-                'when': [],
-                'where': [],
+                'what_facts': [],
                 'claims': [],
                 'parse_error': str(e)
             }
@@ -239,6 +295,10 @@ Be precise and objective in identifying matches and conflicts.
                 if key not in comparison:
                     comparison[key] = []
             
+            # Ensure relevance_score exists
+            if 'relevance_score' not in comparison:
+                comparison['relevance_score'] = 0.5
+            
             return comparison
         except json.JSONDecodeError as e:
             print(f"Error parsing Gemini comparison response: {e}")
@@ -248,5 +308,6 @@ Be precise and objective in identifying matches and conflicts.
                 'conflicting': [],
                 'unique_to_original': [],
                 'unique_to_comparison': [],
+                'relevance_score': 0.0,
                 'parse_error': str(e)
             }

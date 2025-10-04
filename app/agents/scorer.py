@@ -14,22 +14,32 @@ class ScorerAgent:
     def compare_and_score(self, original_facts, comparison_article, comparison_facts):
         """
         Compare facts from original and comparison articles and create analysis.
+        Uses context-aware matching and relevance filtering.
         
         Args:
-            original_facts (dict): Facts from original article
+            original_facts (dict): Facts from original article (hierarchical)
             comparison_article: Article object from comparison source
-            comparison_facts (dict): Facts from comparison article
+            comparison_facts (dict): Facts from comparison article (hierarchical)
             
         Returns:
-            Analysis: Analysis object with comparison results
+            dict or None: Analysis dict with comparison results, or None if not relevant
         """
-        # Use Gemini to compare facts
+        # Use Gemini to compare facts (context-aware)
         comparison_result = self.gemini.compare_facts(original_facts, comparison_facts)
+        
+        # Get relevance score from comparison
+        relevance_score = comparison_result.get('relevance_score', 0.5)
+        
+        # Filter out low-relevance sources (different topics)
+        if relevance_score < 0.4:
+            print(f"Skipping low-relevance source (relevance: {relevance_score}): {comparison_article.url}")
+            return None
         
         # Calculate accuracy score for this comparison
         score = self._calculate_comparison_score(
             comparison_result,
-            comparison_article.source_type
+            comparison_article.source_type,
+            relevance_score
         )
         
         # Create analysis record (will be saved later)
@@ -42,6 +52,7 @@ class ScorerAgent:
                 'unique_to_original': comparison_result.get('unique_to_original', []),
                 'unique_to_comparison': comparison_result.get('unique_to_comparison', []),
                 'analysis_notes': comparison_result.get('analysis_notes', ''),
+                'relevance_score': relevance_score,
                 'source_type': comparison_article.source_type,
                 'source_domain': comparison_article.source_domain
             }
@@ -99,13 +110,14 @@ class ScorerAgent:
         
         return report
     
-    def _calculate_comparison_score(self, comparison_result, source_type):
+    def _calculate_comparison_score(self, comparison_result, source_type, relevance_score=0.5):
         """
         Calculate score for a single comparison.
         
         Args:
             comparison_result (dict): Result from Gemini comparison
             source_type (str): Type of source being compared
+            relevance_score (float): Relevance score from comparison (0.0-1.0)
             
         Returns:
             float: Score from 0-100

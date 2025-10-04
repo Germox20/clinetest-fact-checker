@@ -51,10 +51,10 @@ def report_detail_page(report_id):
         # Get article
         article = Article.query.get(report.original_article_id)
         
-        # Get all facts from original article
+        # Get all facts from original article (for display)
         from app.agents.fact_extractor import FactExtractorAgent
         fact_extractor = FactExtractorAgent()
-        original_facts = fact_extractor.get_facts_for_article(report.original_article_id)
+        original_facts = fact_extractor.get_facts_for_display(report.original_article_id)
         
         # Get analyses with comparison articles and their facts
         analyses = Analysis.query.filter_by(original_article_id=report.original_article_id).all()
@@ -62,7 +62,7 @@ def report_detail_page(report_id):
         analyses_data = []
         for analysis in analyses:
             comparison_article = Article.query.get(analysis.comparison_article_id)
-            comparison_facts = fact_extractor.get_facts_for_article(analysis.comparison_article_id)
+            comparison_facts = fact_extractor.get_facts_for_display(analysis.comparison_article_id)
             
             analyses_data.append({
                 'analysis': analysis,
@@ -112,41 +112,80 @@ def analyze_article():
         scorer = get_scorer()
         
         # Step 1: Extract facts from original article
+        current_app.logger.info("="*60)
+        current_app.logger.info("STEP 1: Extracting facts from original article")
+        current_app.logger.info("="*60)
+        
         if url:
+            current_app.logger.info(f"Processing URL: {url}")
             original_article, original_facts = fact_extractor.process_article(url)
         else:
+            current_app.logger.info(f"Processing text (length: {len(text)} chars)")
             original_article, original_facts = fact_extractor.extract_facts_from_text(text, title)
         
         if not original_article:
+            current_app.logger.error("Failed to process article")
             return jsonify({'error': 'Failed to process article'}), 500
         
+        current_app.logger.info(f"✓ Article processed: {original_article.title}")
+        current_app.logger.info(f"✓ Extracted {len(original_facts.get('what_facts', []))} WHAT facts")
+        current_app.logger.info(f"✓ Extracted {len(original_facts.get('claims', []))} CLAIMS")
+        
         # Step 2: Search for corroborating sources
-        sources = search_agent.find_corroborating_sources(
-            original_facts, 
-            max_sources=Config.MAX_SOURCES_TO_CHECK
-        )
+        try:
+            sources = search_agent.find_corroborating_sources(
+                original_facts, 
+                max_sources=Config.MAX_SOURCES_TO_CHECK
+            )
+        except Exception as e:
+            current_app.logger.error(f"Error in find_corroborating_sources: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
         # Step 3: Analyze each source
+        current_app.logger.info("\n" + "="*60)
+        current_app.logger.info("STEP 3: Analyzing sources")
+        current_app.logger.info("="*60)
+        
         analyses = []
-        for source in sources[:Config.MAX_SOURCES_TO_CHECK]:
+        for idx, source in enumerate(sources[:Config.MAX_SOURCES_TO_CHECK], 1):
+            current_app.logger.info(f"\n→ Analyzing source {idx}/{len(sources[:Config.MAX_SOURCES_TO_CHECK])}")
+            current_app.logger.info(f"  URL: {source['url']}")
+            current_app.logger.info(f"  Title: {source.get('title', 'N/A')}")
+            
             # Fetch and store source
+            current_app.logger.info("  → Fetching article content...")
             source_article = search_agent.fetch_and_store_source(
                 source['url'],
                 source.get('source_type')
             )
             
             if not source_article or not source_article.content:
+                current_app.logger.warning("  ✗ Failed to fetch or no content")
                 continue
             
-            # Extract facts from source
-            source_facts = fact_extractor.extract_facts_from_existing_article(source_article)
+            current_app.logger.info(f"  ✓ Content fetched ({len(source_article.content)} chars)")
             
-            # Compare and score
+            # Extract facts from source (hierarchical)
+            current_app.logger.info("  → Extracting facts...")
+            source_facts = fact_extractor.extract_facts_from_existing_article(source_article)
+            current_app.logger.info(f"  ✓ Extracted {len(source_facts.get('what_facts', []))} WHAT facts, {len(source_facts.get('claims', []))} claims")
+            
+            # Compare and score (returns None if not relevant)
+            current_app.logger.info("  → Comparing facts...")
             analysis = scorer.compare_and_score(
                 original_facts,
                 source_article,
                 source_facts
             )
+            
+            # Skip if source is not relevant
+            if analysis is None:
+                current_app.logger.warning("  ✗ Source filtered as not relevant (relevance < 0.4)")
+                continue
+            
+            current_app.logger.info(f"  ✓ Analysis complete - Score: {analysis['accuracy_score']:.1f}")
             
             # Save analysis to database
             analysis_record = Analysis(
@@ -162,6 +201,8 @@ def analyze_article():
             db.session.commit()
             
             analyses.append(analysis)
+        
+        current_app.logger.info(f"\n✓ Total sources analyzed: {len(analyses)}")
         
         # Step 4: Generate final report
         report = scorer.generate_final_report(original_article.id, analyses)
