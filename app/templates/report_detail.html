@@ -13,6 +13,9 @@
                     <a href="/history" class="btn btn-outline-secondary">
                         <i class="bi bi-arrow-left"></i> Back to History
                     </a>
+                    <button id="rerunReviewBtn" class="btn btn-outline-warning ms-2" onclick="rerunCuratorReview({{ report.id }})">
+                        <i class="bi bi-arrow-repeat"></i> Re-run Curator Review
+                    </button>
                     <button onclick="window.print()" class="btn btn-outline-primary ms-2">
                         <i class="bi bi-printer"></i> Print
                     </button>
@@ -199,6 +202,14 @@
                                                     </div>
                                                 </div>
 
+                                                <!-- Reclassify Button -->
+                                                <div class="mt-2">
+                                                    <button class="btn btn-sm btn-outline-danger" 
+                                                            onclick="reclassifyFact({{ analysis_data.analysis.id }}, {{ loop.index0 }}, 'matching', 'conflicting')">
+                                                        <i class="bi bi-arrow-right"></i> Mark as Conflicting
+                                                    </button>
+                                                </div>
+
                                                 <!-- Expandable Related Entities -->
                                                 {% if match is mapping %}
                                                 {% set has_entities = (match.related_who and match.related_who|length > 0) or (match.related_where and match.related_where|length > 0) or (match.related_when and match.related_when|length > 0) %}
@@ -309,6 +320,14 @@
                                                             {% endif %}
                                                         </p>
                                                     </div>
+                                                </div>
+
+                                                <!-- Reclassify Button -->
+                                                <div class="mt-2">
+                                                    <button class="btn btn-sm btn-outline-success" 
+                                                            onclick="reclassifyFact({{ analysis_data.analysis.id }}, {{ loop.index0 }}, 'conflicting', 'matching')">
+                                                        <i class="bi bi-arrow-left"></i> Mark as Matching
+                                                    </button>
                                                 </div>
 
                                                 <!-- Expandable Related Entities for Conflicts -->
@@ -470,4 +489,73 @@
         }
     }
 </style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    async function rerunCuratorReview(reportId) {
+        const btn = document.getElementById('rerunReviewBtn');
+        const originalText = btn.innerHTML;
+        
+        // Disable button and show loading
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running review...';
+        
+        try {
+            const response = await fetch(`/api/report/${reportId}/review`, {
+                method: 'POST'
+            });
+            
+            const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(result.error || 'Review failed');
+            }
+            
+            // Show success and reload page
+            alert('Curator review completed successfully! The page will reload to show updated results.');
+            location.reload();
+            
+        } catch (error) {
+            alert('Error running curator review: ' + error.message);
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+    
+    async function reclassifyFact(analysisId, factIndex, fromCategory, toCategory) {
+        // Confirm action
+        const action = toCategory === 'matching' ? 'matching' : 'conflicting';
+        const confirmed = confirm(`Are you sure you want to reclassify this fact as ${action}?`);
+        
+        if (!confirmed) return;
+        
+        try {
+            const response = await fetch(`/api/analysis/${analysisId}/reclassify`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fact_index: factIndex,
+                    from_category: fromCategory,
+                    to_category: toCategory
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(result.error || 'Reclassification failed');
+            }
+            
+            // Show success message with updated scores
+            alert(`Fact reclassified successfully!\n\nNew Analysis Score: ${result.new_analysis_score.toFixed(1)}\nNew Overall Score: ${result.new_overall_score.toFixed(1)}\n\nThe page will reload to show updated results.`);
+            location.reload();
+            
+        } catch (error) {
+            alert('Error reclassifying fact: ' + error.message);
+        }
+    }
+</script>
 {% endblock %}

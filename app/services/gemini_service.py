@@ -217,6 +217,26 @@ Comparison Source Facts:
 3. Partial matches (same event, different details) are CONFLICTS, not matches
 4. Shared entities without same event context are NOT matches
 
+**CRITICAL: NUMBER COMPARISON RULES**
+- When comparing numerical values, calculate percentage difference
+- Difference < 30% of larger number = MATCH, not conflict
+- Example: 45 vs 60 → diff is 15/60 = 25% → MATCH with 'moderate' strength
+- Only mark as conflict if difference ≥ 30%
+
+**CRITICAL: AMBIGUOUS EXPRESSION RULES**
+Apply these mappings when comparing expressions with numbers:
+- 0-20: "few", "some", "any"
+- 20-50: "some", "various", "many"
+- 50-200: "several", "many", "lot" 
+- 200+: "huge", "massive", "big"
+Example: "many people" (20-200) matches with "45 people" → MATCH
+
+**CRITICAL: NO DUAL CLASSIFICATION**
+- A fact should NEVER appear in both matching AND conflicting lists
+- If unsure between match and conflict, classify as matching with 'moderate' strength
+- If numbers are within 30% tolerance → Always MATCH, never conflict
+- If ambiguous expression aligns with number range → Always MATCH, never conflict
+
 **CONFLICT TYPES:**
 - "contradiction": Directly opposite information
 - "partial_mismatch": Same event but different details (dates, numbers, participants)

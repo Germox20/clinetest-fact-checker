@@ -260,3 +260,266 @@ class CuratorAgent:
             str: Hash string
         """
         return hashlib.md5(content.encode('utf-8')).hexdigest()
+    
+    def review_and_reconcile_analyses(self, analyses):
+        """
+        Review analyses to ensure consistency in fact classifications.
+        Resolves contradictions where facts are marked as both matching AND conflicting.
+        Applies numerical and ambiguous expression rules.
+        
+        Args:
+            analyses (list): List of analysis dictionaries
+            
+        Returns:
+            list: Reconciled analyses with consistent classifications
+        """
+        print("\n" + "="*60)
+        print("CURATOR REVIEW: Reconciling fact classifications")
+        print("="*60)
+        
+        reconciled_analyses = []
+        
+        for idx, analysis in enumerate(analyses, 1):
+            print(f"\n→ Reviewing analysis {idx}/{len(analyses)}...")
+            
+            matching_facts = analysis.get('matching_facts', [])
+            conflicting_facts = analysis.get('conflicting_facts', [])
+            
+            # Check for dual classifications
+            dual_classified = self._find_dual_classifications(matching_facts, conflicting_facts)
+            
+            if dual_classified:
+                print(f"  ⚠ Found {len(dual_classified)} dual-classified facts")
+                
+                # Resolve each dual classification
+                for original_fact, comparison_fact in dual_classified:
+                    decision = self._resolve_fact_classification(original_fact, comparison_fact)
+                    
+                    if decision == 'match':
+                        # Keep in matching, remove from conflicting
+                        conflicting_facts = [c for c in conflicting_facts 
+                                           if not self._facts_match(c, original_fact, comparison_fact)]
+                        print(f"  ✓ Reclassified as MATCH: {original_fact[:50]}...")
+                    else:
+                        # Keep in conflicting, remove from matching
+                        matching_facts = [m for m in matching_facts 
+                                        if not self._facts_match(m, original_fact, comparison_fact)]
+                        print(f"  ✓ Reclassified as CONFLICT: {original_fact[:50]}...")
+            else:
+                print("  ✓ No dual classifications found")
+            
+            # Update analysis with reconciled facts
+            analysis['matching_facts'] = matching_facts
+            analysis['conflicting_facts'] = conflicting_facts
+            reconciled_analyses.append(analysis)
+        
+        print(f"\n✓ Review complete: {len(reconciled_analyses)} analyses reconciled")
+        return reconciled_analyses
+    
+    def _find_dual_classifications(self, matching_facts, conflicting_facts):
+        """Find facts that appear in both matching and conflicting lists."""
+        dual_classified = []
+        
+        for match in matching_facts:
+            match_text = self._extract_fact_text(match)
+            
+            for conflict in conflicting_facts:
+                conflict_original = conflict.get('original', '') if isinstance(conflict, dict) else str(conflict)
+                conflict_comparison = conflict.get('comparison', '') if isinstance(conflict, dict) else ''
+                
+                # Check if they're about the same fact
+                if self._is_same_fact(match_text, conflict_original) or \
+                   self._is_same_fact(match_text, conflict_comparison):
+                    dual_classified.append((match_text, conflict_comparison or conflict_original))
+                    break
+        
+        return dual_classified
+    
+    def _extract_fact_text(self, fact):
+        """Extract text from fact (handles both string and dict)."""
+        if isinstance(fact, dict):
+            return fact.get('original_fact') or fact.get('fact', '')
+        return str(fact)
+    
+    def _is_same_fact(self, fact1, fact2):
+        """Check if two facts are about the same thing (simple similarity)."""
+        import re
+        # Remove numbers and special chars for comparison
+        clean1 = re.sub(r'[\d\W]+', ' ', fact1.lower()).strip()
+        clean2 = re.sub(r'[\d\W]+', ' ', fact2.lower()).strip()
+        
+        words1 = set(clean1.split())
+        words2 = set(clean2.split())
+        
+        if not words1 or not words2:
+            return False
+        
+        # Calculate word overlap
+        overlap = len(words1 & words2) / max(len(words1), len(words2))
+        return overlap > 0.5  # 50% word overlap
+    
+    def _resolve_fact_classification(self, fact1, fact2):
+        """
+        Resolve whether facts should be classified as matching or conflicting.
+        Applies number comparison and ambiguous expression rules.
+        
+        Returns: 'match' or 'conflict'
+        """
+        import re
+        
+        # Extract numbers from both facts
+        numbers1 = re.findall(r'\d+(?:,\d{3})*(?:\.\d+)?', fact1)
+        numbers2 = re.findall(r'\d+(?:,\d{3})*(?:\.\d+)?', fact2)
+        
+        # Convert to floats
+        nums1 = [float(n.replace(',', '')) for n in numbers1]
+        nums2 = [float(n.replace(',', '')) for n in numbers2]
+        
+        # If both have numbers, apply 30% rule
+        if nums1 and nums2:
+            # Compare corresponding numbers
+            for n1, n2 in zip(nums1, nums2):
+                if self._numbers_within_tolerance(n1, n2):
+                    print(f"    → Numbers {n1} vs {n2}: within 30% tolerance")
+                    return 'match'
+                else:
+                    print(f"    → Numbers {n1} vs {n2}: exceed 30% tolerance")
+                    return 'conflict'
+        
+        # Check for ambiguous expressions
+        ambiguous_match = self._check_ambiguous_expressions(fact1, fact2)
+        if ambiguous_match is not None:
+            return 'match' if ambiguous_match else 'conflict'
+        
+        # Default: keep as conflict if we can't determine
+        return 'conflict'
+    
+    def _numbers_within_tolerance(self, num1, num2):
+        """Check if two numbers are within 30% of the larger number."""
+        if num1 == 0 and num2 == 0:
+            return True
+        
+        larger = max(abs(num1), abs(num2))
+        difference = abs(num1 - num2)
+        percentage_diff = (difference / larger) * 100
+        
+        return percentage_diff < 30
+    
+    def _check_ambiguous_expressions(self, fact1, fact2):
+        """
+        Check if ambiguous expressions match with numbers.
+        Returns: True (match), False (no match), None (not applicable)
+        """
+        import re
+        
+        # Ambiguous expression mappings
+        EXPRESSIONS = {
+            'few': (0, 20),
+            'some': (5, 50),
+            'any': (0, 20),
+            'various': (20, 50),
+            'many': (20, 200),
+            'several': (50, 200),
+            'lot': (50, 200),
+            'lots': (50, 200),
+            'huge': (200, float('inf')),
+            'massive': (200, float('inf')),
+            'big': (200, float('inf'))
+        }
+        
+        # Find expression in one fact and number in another
+        fact1_lower = fact1.lower()
+        fact2_lower = fact2.lower()
+        
+        # Extract numbers
+        numbers1 = re.findall(r'\d+(?:,\d{3})*', fact1)
+        numbers2 = re.findall(r'\d+(?:,\d{3})*', fact2)
+        
+        # Check if one has expression and other has number
+        for expr, (min_val, max_val) in EXPRESSIONS.items():
+            if expr in fact1_lower and numbers2:
+                num = float(numbers2[0].replace(',', ''))
+                match = min_val <= num <= max_val
+                print(f"    → Expression '{expr}' vs number {num}: {'match' if match else 'no match'}")
+                return match
+            elif expr in fact2_lower and numbers1:
+                num = float(numbers1[0].replace(',', ''))
+                match = min_val <= num <= max_val
+                print(f"    → Expression '{expr}' vs number {num}: {'match' if match else 'no match'}")
+                return match
+        
+        return None  # No ambiguous expressions found
+    
+    def _facts_match(self, fact_item, original_text, comparison_text):
+        """Check if a fact item matches the given texts."""
+        if isinstance(fact_item, dict):
+            item_orig = fact_item.get('original', '') or fact_item.get('original_fact', '')
+            item_comp = fact_item.get('comparison', '') or fact_item.get('comparison_fact', '')
+            
+            return (original_text in item_orig or item_orig in original_text) and \
+                   (comparison_text in item_comp or item_comp in comparison_text)
+        
+        item_text = str(fact_item)
+        return original_text in item_text or comparison_text in item_text
+    
+    def rescore_analysis(self, matching_facts, conflicting_facts):
+        """
+        Recalculate accuracy score for an analysis after fact reclassification.
+        
+        Args:
+            matching_facts (list): List of matching facts
+            conflicting_facts (list): List of conflicting facts
+            
+        Returns:
+            float: New accuracy score
+        """
+        print(f"\n→ Curator: Rescoring analysis...")
+        
+        # Count facts by strength/severity
+        strong_matches = 0
+        moderate_matches = 0
+        
+        for fact in matching_facts:
+            if isinstance(fact, dict):
+                strength = fact.get('match_strength', 'moderate')
+                if strength == 'strong':
+                    strong_matches += 1
+                else:
+                    moderate_matches += 1
+            else:
+                moderate_matches += 1
+        
+        high_conflicts = 0
+        medium_conflicts = 0
+        low_conflicts = 0
+        
+        for fact in conflicting_facts:
+            if isinstance(fact, dict):
+                severity = fact.get('conflict_severity', 'medium')
+                if severity == 'high':
+                    high_conflicts += 1
+                elif severity == 'medium':
+                    medium_conflicts += 1
+                else:
+                    low_conflicts += 1
+            else:
+                medium_conflicts += 1
+        
+        # Calculate weighted score
+        positive_points = (strong_matches * 10) + (moderate_matches * 7)
+        negative_points = (high_conflicts * 15) + (medium_conflicts * 10) + (low_conflicts * 5)
+        
+        total_facts = len(matching_facts) + len(conflicting_facts)
+        if total_facts == 0:
+            return 50.0
+        
+        # Score formula: percentage of positive points out of maximum possible
+        max_possible = total_facts * 10
+        raw_score = max(0, positive_points - negative_points)
+        score = min(100.0, (raw_score / max_possible) * 100)
+        
+        print(f"  ✓ New score: {score:.1f}")
+        print(f"    - Matching facts: {len(matching_facts)} (strong: {strong_matches}, moderate: {moderate_matches})")
+        print(f"    - Conflicting facts: {len(conflicting_facts)} (high: {high_conflicts}, medium: {medium_conflicts}, low: {low_conflicts})")
+        
+        return score

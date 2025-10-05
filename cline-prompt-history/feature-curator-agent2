@@ -1,0 +1,11 @@
+Let's add some small changes:
+In the history page, make it so that clicking the name of the article opens the detailed report, and add an action button to open the article's link.
+The Curator Agent will review each analyzed source before merging the results of the current analysis or creating the new report.
+The Curator's review will avoid having multiple interpretations of the same fact comparisons (For example being both matching and conflicting), by following a set of rules to review the fact comparisons:
+- When comparing numbers in both sources, a difference lower than 30% of the biggest number is considered a match.
+- When comparing numbers with ambiguous expressions (like Many, Few, Several, etc) the following rules should apply.
++ 20 or lower = few | some | any
++ 20 to 50 = some | various | many
++ 50 to 200 = several | many | lot
++ 200 and over = huge | massive | big
+- When a comparison is found both matching and conflicting, the Curator agent should reassess the fact from the corresponding source and determine which case fits better.

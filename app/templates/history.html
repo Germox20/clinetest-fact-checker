@@ -101,18 +101,13 @@
         history.forEach(item => {
             const row = document.createElement('tr');
             
-            // Article title with URL
+            // Article title - click to view report
             const titleCell = document.createElement('td');
-            if (item.article_url && item.article_url !== 'user_provided_text') {
-                titleCell.innerHTML = `
-                    <a href="${item.article_url}" target="_blank" class="text-decoration-none">
-                        ${truncate(item.article_title, 50)}
-                        <i class="bi bi-box-arrow-up-right small"></i>
-                    </a>
-                `;
-            } else {
-                titleCell.textContent = truncate(item.article_title, 50);
-            }
+            titleCell.innerHTML = `
+                <a href="/report/${item.report_id}" class="text-decoration-none text-primary">
+                    ${truncate(item.article_title, 50)}
+                </a>
+            `;
             row.appendChild(titleCell);
 
             // Score with color coding
@@ -147,14 +142,28 @@
 
             // Actions
             const actionsCell = document.createElement('td');
-            actionsCell.innerHTML = `
+            let actionsHtml = `
                 <button class="btn btn-sm btn-outline-primary me-1" onclick="viewReport(${item.report_id})">
                     <i class="bi bi-eye"></i> View
                 </button>
+            `;
+            
+            // Add "Open Article" button if URL exists and is not user-provided text
+            if (item.article_url && item.article_url !== 'user_provided_text') {
+                actionsHtml += `
+                    <a href="${item.article_url}" target="_blank" class="btn btn-sm btn-outline-secondary me-1">
+                        <i class="bi bi-box-arrow-up-right"></i> Article
+                    </a>
+                `;
+            }
+            
+            actionsHtml += `
                 <button class="btn btn-sm btn-outline-danger" onclick="deleteReport(${item.report_id})">
                     <i class="bi bi-trash"></i>
                 </button>
             `;
+            
+            actionsCell.innerHTML = actionsHtml;
             row.appendChild(actionsCell);
 
             tbody.appendChild(row);

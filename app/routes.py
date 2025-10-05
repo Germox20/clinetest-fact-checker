@@ -244,6 +244,10 @@ def analyze_article():
             
             current_app.logger.info(f"\n✓ Sources analyzed this attempt: {len(analyses)}")
             
+            # Step 3.5: Curator review - Reconcile fact classifications
+            if analyses:
+                analyses = curator.review_and_reconcile_analyses(analyses)
+            
             # Step 4: Generate or merge report
             if existing_report and analyses:
                 # Curator: Merge new analyses into existing report
@@ -398,6 +402,232 @@ def delete_report(report_id):
     
     except Exception as e:
         current_app.logger.error(f"Error deleting report: {e}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/report/<int:report_id>/review', methods=['POST'])
+def rerun_curator_review(report_id):
+    """Re-run Curator review on existing report to reconcile fact classifications."""
+    try:
+        report = Report.query.get(report_id)
+        
+        if not report:
+            return jsonify({'error': 'Report not found'}), 404
+        
+        current_app.logger.info(f"\n{'='*60}")
+        current_app.logger.info(f"Re-running Curator review for report {report_id}")
+        current_app.logger.info(f"{'='*60}")
+        
+        # Get all analyses for this report
+        analyses_objs = Analysis.query.filter_by(
+            original_article_id=report.original_article_id
+        ).all()
+        
+        if not analyses_objs:
+            return jsonify({'error': 'No analyses found for this report'}), 404
+        
+        # Convert to list of dicts
+        analyses = [
+            {
+                'comparison_article_id': a.comparison_article_id,
+                'accuracy_score': a.accuracy_score,
+                'matching_facts': a.get_matching_facts(),
+                'conflicting_facts': a.get_conflicting_facts(),
+                'analysis_details': a.get_analysis_details()
+            }
+            for a in analyses_objs
+        ]
+        
+        # Run Curator review
+        curator = get_curator()
+        reconciled_analyses = curator.review_and_reconcile_analyses(analyses)
+        
+        # Update analyses in database
+        for i, analysis_obj in enumerate(analyses_objs):
+            reconciled = reconciled_analyses[i]
+            analysis_obj.set_matching_facts(reconciled['matching_facts'])
+            analysis_obj.set_conflicting_facts(reconciled['conflicting_facts'])
+        
+        db.session.commit()
+        
+        # Recalculate report scores
+        from app.agents.scorer import ScorerAgent
+        scorer = ScorerAgent()
+        
+        overall_score = scorer._calculate_overall_score(reconciled_analyses)
+        confidence_level = scorer._determine_confidence_level(reconciled_analyses)
+        summary = scorer._generate_summary(reconciled_analyses, overall_score)
+        recommendations = scorer._generate_recommendations(overall_score, confidence_level, reconciled_analyses)
+        
+        # Update detailed results
+        detailed_results = {
+            'individual_analyses': reconciled_analyses,
+            'score_breakdown': scorer._get_score_breakdown(reconciled_analyses),
+            'source_distribution': scorer._get_source_distribution(reconciled_analyses),
+            'fact_verification_details': scorer._get_fact_verification_details(reconciled_analyses)
+        }
+        
+        # Update report
+        report.overall_score = overall_score
+        report.confidence_level = confidence_level
+        report.summary = summary
+        report.recommendations = recommendations
+        report.set_detailed_results(detailed_results)
+        report.last_updated = db.func.now()
+        
+        db.session.commit()
+        
+        current_app.logger.info(f"✓ Curator review complete")
+        current_app.logger.info(f"  Updated score: {overall_score:.1f}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Curator review completed successfully',
+            'report': report.to_dict()
+        })
+    
+    except Exception as e:
+        current_app.logger.error(f"Error re-running curator review: {e}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/analysis/<int:analysis_id>/reclassify', methods=['POST'])
+def reclassify_fact(analysis_id):
+    """
+    Reclassify a fact from matching to conflicting or vice versa.
+    Triggers automatic rescoring of the analysis and overall report.
+    """
+    try:
+        data = request.get_json()
+        fact_index = data.get('fact_index')
+        from_category = data.get('from_category')
+        to_category = data.get('to_category')
+        
+        if fact_index is None or not from_category or not to_category:
+            return jsonify({'error': 'Missing required parameters'}), 400
+        
+        # Get analysis
+        analysis = Analysis.query.get(analysis_id)
+        if not analysis:
+            return jsonify({'error': 'Analysis not found'}), 404
+        
+        current_app.logger.info(f"\n→ Reclassifying fact in analysis {analysis_id}")
+        current_app.logger.info(f"  From: {from_category} → To: {to_category}")
+        current_app.logger.info(f"  Fact index: {fact_index}")
+        
+        # Get facts
+        matching_facts = analysis.get_matching_facts()
+        conflicting_facts = analysis.get_conflicting_facts()
+        
+        # Move fact between categories with structure transformation
+        moved_fact = None
+        if from_category == 'matching' and fact_index < len(matching_facts):
+            moved_fact = matching_facts.pop(fact_index)
+            # Transform matching fact to conflicting fact structure
+            transformed_fact = {
+                'original': moved_fact.get('original_fact') or moved_fact.get('fact') or str(moved_fact),
+                'comparison': moved_fact.get('comparison_fact', ''),
+                'conflict_type': 'user_reclassified',
+                'conflict_severity': 'low',
+                'category': moved_fact.get('category', 'what')
+            }
+            conflicting_facts.append(transformed_fact)
+            current_app.logger.info(f"  ✓ Moved from matching to conflicting (transformed structure)")
+        elif from_category == 'conflicting' and fact_index < len(conflicting_facts):
+            moved_fact = conflicting_facts.pop(fact_index)
+            # Transform conflicting fact to matching fact structure
+            transformed_fact = {
+                'original_fact': moved_fact.get('original', ''),
+                'comparison_fact': moved_fact.get('comparison', ''),
+                'match_strength': 'moderate',
+                'category': moved_fact.get('category', 'what')
+            }
+            matching_facts.append(transformed_fact)
+            current_app.logger.info(f"  ✓ Moved from conflicting to matching (transformed structure)")
+        else:
+            return jsonify({'error': 'Invalid fact_index or category'}), 400
+        
+        # Update analysis with new facts
+        analysis.set_matching_facts(matching_facts)
+        analysis.set_conflicting_facts(conflicting_facts)
+        
+        # Curator: Rescore this analysis
+        curator = get_curator()
+        new_score = curator.rescore_analysis(matching_facts, conflicting_facts)
+        analysis.accuracy_score = new_score
+        
+        db.session.commit()
+        
+        # Expire all cached objects to ensure fresh data
+        db.session.expire_all()
+        
+        # Recalculate overall report
+        report = Report.query.filter_by(
+            original_article_id=analysis.original_article_id
+        ).first()
+        
+        if report:
+            # Get all analyses for this report (fresh from database)
+            all_analyses_objs = Analysis.query.filter_by(
+                original_article_id=analysis.original_article_id
+            ).all()
+            
+            # Convert to dict format for scorer
+            all_analyses = [
+                {
+                    'comparison_article_id': a.comparison_article_id,
+                    'accuracy_score': a.accuracy_score,
+                    'matching_facts': a.get_matching_facts(),
+                    'conflicting_facts': a.get_conflicting_facts(),
+                    'analysis_details': a.get_analysis_details()
+                }
+                for a in all_analyses_objs
+            ]
+            
+            # Update report scores
+            scorer = get_scorer()
+            report.overall_score = scorer._calculate_overall_score(all_analyses)
+            report.confidence_level = scorer._determine_confidence_level(all_analyses)
+            report.summary = scorer._generate_summary(all_analyses, report.overall_score)
+            report.recommendations = scorer._generate_recommendations(
+                report.overall_score, 
+                report.confidence_level, 
+                all_analyses
+            )
+            
+            # Update detailed results
+            detailed_results = {
+                'individual_analyses': all_analyses,
+                'score_breakdown': scorer._get_score_breakdown(all_analyses),
+                'source_distribution': scorer._get_source_distribution(all_analyses),
+                'fact_verification_details': scorer._get_fact_verification_details(all_analyses)
+            }
+            report.set_detailed_results(detailed_results)
+            report.last_updated = db.func.now()
+            
+            db.session.commit()
+            
+            current_app.logger.info(f"  ✓ Updated report scores")
+            current_app.logger.info(f"    - New analysis score: {new_score:.1f}")
+            current_app.logger.info(f"    - New overall score: {report.overall_score:.1f}")
+            
+            return jsonify({
+                'success': True,
+                'new_analysis_score': new_score,
+                'new_overall_score': report.overall_score,
+                'new_confidence': report.confidence_level
+            })
+        else:
+            return jsonify({'error': 'Report not found'}), 404
+    
+    except Exception as e:
+        current_app.logger.error(f"Error reclassifying fact: {e}")
+        import traceback
+        traceback.print_exc()
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
