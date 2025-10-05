@@ -104,6 +104,36 @@ Summary:"""
             print(f"Error generating summary with Gemini: {e}")
             return "Error generating summary"
     
+    def optimize_search_query(self, facts, attempt=1):
+        """
+        Generate optimized search queries from hierarchical facts.
+        Creates complete, coherent queries for better search results.
+        
+        Args:
+            facts (dict): Hierarchical facts structure
+            attempt (int): Attempt number for progressive refinement
+            
+        Returns:
+            dict: {
+                'primary_query': str,
+                'alternative_queries': list,
+                'keywords': list
+            }
+        """
+        prompt = self._build_query_optimization_prompt(facts, attempt)
+        
+        try:
+            response = self.client.models.generate_content(
+                model='gemini-2.0-flash-exp',
+                contents=prompt
+            )
+            query_data = self._parse_query_optimization_response(response.text)
+            return query_data
+        except Exception as e:
+            print(f"Error optimizing search query with Gemini: {e}")
+            # Fallback to basic query
+            return self._create_fallback_query(facts)
+    
     def _build_fact_extraction_prompt(self, article_text, article_title=None):
         """Build prompt for hierarchical fact extraction."""
         title_context = f"\nTitle: {article_title}\n" if article_title else ""
@@ -311,3 +341,118 @@ Be strict about matching - similar context is required, not just shared names.
                 'relevance_score': 0.0,
                 'parse_error': str(e)
             }
+    
+    def _build_query_optimization_prompt(self, facts, attempt):
+        """Build prompt for query optimization."""
+        attempt_context = ""
+        if attempt > 1:
+            attempt_context = f"\n**This is attempt {attempt}** - Previous searches didn't find enough sources. Create MORE SPECIFIC and VARIED queries."
+        
+        prompt = f"""You are a search query optimization assistant. Given hierarchical facts from an article, create COMPLETE, EFFECTIVE search queries for News API and Google Search.
+
+{attempt_context}
+
+Facts from Article:
+{json.dumps(facts, indent=2)}
+
+Create search queries that will find news articles about the SAME EVENTS and CLAIMS.
+
+**QUERY REQUIREMENTS:**
+1. Use COMPLETE SENTENCES with full context
+2. Include main event + key entities + location/time if relevant
+3. Avoid incomplete fragments
+4. Each query should be self-contained and clear
+
+Return ONLY a valid JSON object:
+{{
+  "primary_query": "Main complete sentence describing the core event with entities",
+  "alternative_queries": [
+    "Alternative phrasing of the event",
+    "Query focusing on different aspect of same event",
+    "Query with different keywords but same meaning"
+  ],
+  "keywords": ["keyword1", "keyword2", "keyword3"]
+}}
+
+**EXAMPLES:**
+
+Bad queries (DON'T do this):
+- "launches new"  ❌ (incomplete)
+- "Elon Musk"  ❌ (just a name)
+- "San Francisco 2024"  ❌ (no context)
+
+Good queries (DO this):
+- "Elon Musk launches new artificial intelligence company in San Francisco"  ✓
+- "SpaceX CEO announces AI startup in California January 2024"  ✓
+- "Tesla founder Musk unveils new tech venture artificial intelligence"  ✓
+
+Focus on the HIGH-IMPORTANCE WHAT facts and CLAIMS from the input.
+"""
+        return prompt
+    
+    def _parse_query_optimization_response(self, response_text):
+        """Parse Gemini response for query optimization."""
+        try:
+            # Extract JSON from response
+            if '```json' in response_text:
+                json_start = response_text.find('```json') + 7
+                json_end = response_text.find('```', json_start)
+                json_text = response_text[json_start:json_end].strip()
+            elif '```' in response_text:
+                json_start = response_text.find('```') + 3
+                json_end = response_text.find('```', json_start)
+                json_text = response_text[json_start:json_end].strip()
+            else:
+                json_text = response_text.strip()
+            
+            query_data = json.loads(json_text)
+            
+            # Ensure required keys exist
+            if 'primary_query' not in query_data:
+                query_data['primary_query'] = ''
+            if 'alternative_queries' not in query_data:
+                query_data['alternative_queries'] = []
+            if 'keywords' not in query_data:
+                query_data['keywords'] = []
+            
+            return query_data
+        except json.JSONDecodeError as e:
+            print(f"Error parsing query optimization response: {e}")
+            print(f"Response text: {response_text[:500]}")
+            return {
+                'primary_query': '',
+                'alternative_queries': [],
+                'keywords': [],
+                'parse_error': str(e)
+            }
+    
+    def _create_fallback_query(self, facts):
+        """Create a basic fallback query if Gemini fails."""
+        query_parts = []
+        
+        # Extract from WHAT facts
+        if facts.get('what_facts'):
+            for fact in facts['what_facts'][:2]:
+                if isinstance(fact, dict):
+                    event = fact.get('event', '')
+                    if event:
+                        # Take first sentence
+                        first_sentence = event.split('.')[0]
+                        query_parts.append(first_sentence)
+        
+        # Extract from CLAIMS
+        if facts.get('claims'):
+            for claim in facts['claims'][:1]:
+                if isinstance(claim, dict):
+                    claim_text = claim.get('claim', '')
+                    if claim_text:
+                        first_sentence = claim_text.split('.')[0]
+                        query_parts.append(first_sentence)
+        
+        primary_query = ' '.join(query_parts[:2]) if query_parts else "news"
+        
+        return {
+            'primary_query': primary_query,
+            'alternative_queries': [],
+            'keywords': []
+        }

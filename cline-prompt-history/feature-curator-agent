@@ -1,0 +1,6 @@
+On the logs I can see the News API usually returns no results. The query usually contains incomplete and unrelated senteces. Let's add a Curator AI Agent to help with this and other tasks.
+The Curator agent will help to produce querys for the News API and Search API making sure that they contain full sentences with relevant facts, and or keywords to increase the search precision.
+The Curator agent will also improve reporting accuracy by filtering out previously analyzed articles, including the original, and merging new reports of the same original into one with all their unique sources. If a merge is done, the report should be updated using the new sources. If there are no new sources in the new analysis no merge should be done. 
+The Curator agent will also re-run an analysis no more than three times until the merged report has at least 3 sources.
+Inform the user if there has been a merge or not, when showing the summary page.
+Review files that may be affected by the changes and update to fit new requirements. 

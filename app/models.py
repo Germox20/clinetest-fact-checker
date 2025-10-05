@@ -185,6 +185,18 @@ class Report(db.Model):
     detailed_results = db.Column(db.Text)  # JSON with detailed results
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
+    # Curator Agent merge tracking
+    is_merged = db.Column(db.Boolean, default=False)  # Has this report been merged
+    merge_count = db.Column(db.Integer, default=0)  # Number of times merged
+    analysis_attempts = db.Column(db.Integer, default=1)  # Analysis retry attempts
+    parent_report_id = db.Column(db.Integer, db.ForeignKey('reports.id'), nullable=True)
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships for merged reports
+    merged_reports = db.relationship('Report', 
+                                    backref=db.backref('parent_report', remote_side=[id]),
+                                    foreign_keys=[parent_report_id])
+    
     def set_detailed_results(self, results_dict):
         """Store detailed results as JSON."""
         self.detailed_results = json.dumps(results_dict)

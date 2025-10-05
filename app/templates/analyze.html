@@ -108,6 +108,9 @@
                         <p id="sourcesChecked" class="text-muted">Loading...</p>
                     </div>
 
+                    <!-- Merge Info Alert -->
+                    <div id="mergeInfo" style="display: none;"></div>
+
                     <div class="text-center">
                         <a href="#" id="viewDetailedReport" class="btn btn-primary">
                             <i class="bi bi-file-earmark-text"></i> View Detailed Report
@@ -261,6 +264,30 @@
         document.getElementById('reportSummary').textContent = report.summary;
         document.getElementById('reportRecommendations').textContent = report.recommendations;
         document.getElementById('sourcesChecked').textContent = `${report.sources_checked} sources analyzed`;
+        
+        // Display merge info if article was re-analyzed
+        if (result.was_merged) {
+            const mergeInfo = document.getElementById('mergeInfo');
+            mergeInfo.innerHTML = `
+                <div class="alert alert-info mb-3">
+                    <i class="bi bi-info-circle-fill"></i>
+                    <strong>Report Updated!</strong>
+                    This article was previously analyzed. 
+                    <strong>${result.new_sources_added}</strong> new source(s) have been added to the existing report.
+                    ${result.total_attempts > 1 ? ` (${result.total_attempts} analysis attempts)` : ''}
+                </div>
+            `;
+            mergeInfo.style.display = 'block';
+        } else if (result.total_attempts > 1) {
+            const mergeInfo = document.getElementById('mergeInfo');
+            mergeInfo.innerHTML = `
+                <div class="alert alert-secondary mb-3">
+                    <i class="bi bi-arrow-repeat"></i>
+                    Analysis completed after <strong>${result.total_attempts}</strong> attempts to find sufficient sources.
+                </div>
+            `;
+            mergeInfo.style.display = 'block';
+        }
         
         // Set up detailed report link
         document.getElementById('viewDetailedReport').href = `/report/${result.report_id}`;

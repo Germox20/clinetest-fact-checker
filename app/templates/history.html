@@ -148,8 +148,11 @@
             // Actions
             const actionsCell = document.createElement('td');
             actionsCell.innerHTML = `
-                <button class="btn btn-sm btn-outline-primary" onclick="viewReport(${item.report_id})">
+                <button class="btn btn-sm btn-outline-primary me-1" onclick="viewReport(${item.report_id})">
                     <i class="bi bi-eye"></i> View
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteReport(${item.report_id})">
+                    <i class="bi bi-trash"></i>
                 </button>
             `;
             row.appendChild(actionsCell);
@@ -170,6 +173,34 @@
 
     function viewReport(reportId) {
         window.location.href = `/report/${reportId}`;
+    }
+
+    async function deleteReport(reportId) {
+        if (!confirm('Are you sure you want to delete this report? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/report/${reportId}/delete`, {
+                method: 'DELETE'
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to delete report');
+            }
+
+            // Remove from local data and refresh display
+            historyData = historyData.filter(item => item.report_id !== reportId);
+            displayHistory(historyData);
+
+            // Show success message
+            alert('Report deleted successfully');
+
+        } catch (error) {
+            alert('Error deleting report: ' + error.message);
+        }
     }
 
     function truncate(text, maxLength) {
