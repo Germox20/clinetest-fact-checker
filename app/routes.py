@@ -112,6 +112,7 @@ def analyze_article():
         url = data.get('url')
         text = data.get('text')
         title = data.get('title')
+        cheap_mode = data.get('cheap_mode', False)
         
         if not url and not text:
             return jsonify({'error': 'Either url or text must be provided'}), 400
@@ -122,12 +123,9 @@ def analyze_article():
         search_agent = get_search_agent()
         scorer = get_scorer()
         
-        # Curator: Check for existing analysis
-        existing_report = curator.check_existing_analysis(url, text)
-        
-        # Step 1: Extract facts from original article
+        # Step 1: Extract facts from original article (or get existing)
         current_app.logger.info("="*60)
-        current_app.logger.info("STEP 1: Extracting facts from original article")
+        current_app.logger.info("STEP 1: Processing original article")
         current_app.logger.info("="*60)
         
         if url:
@@ -145,16 +143,84 @@ def analyze_article():
         current_app.logger.info(f"✓ Extracted {len(original_facts.get('what_facts', []))} WHAT facts")
         current_app.logger.info(f"✓ Extracted {len(original_facts.get('claims', []))} CLAIMS")
         
+        # CHEAP MODE: Check if this article already has a report
+        if cheap_mode and url:
+            current_app.logger.info("💰 Cheap Mode: Checking for existing analysis...")
+            current_app.logger.info(f"  Searching for article ID: {original_article.id}")
+            current_app.logger.info(f"  Article URL: {original_article.url}")
+            current_app.logger.info(f"  Article title: {original_article.title}")
+            
+            # Check if article was analyzed as original
+            report_from_original = Report.query.filter_by(
+                original_article_id=original_article.id
+            ).first()
+            
+            # Debug: Show all reports for this article
+            all_reports_for_article = Report.query.filter_by(
+                original_article_id=original_article.id
+            ).all()
+            current_app.logger.info(f"  Found {len(all_reports_for_article)} report(s) with this article as original")
+            
+            if report_from_original:
+                current_app.logger.info(f"💰 Cheap Mode HIT: Found report {report_from_original.id} (article was original)")
+                return jsonify({
+                    'success': True,
+                    'article_id': original_article.id,
+                    'report_id': report_from_original.id,
+                    'report': report_from_original.to_dict(),
+                    'cheap_mode_hit': True,
+                    'message': 'Found existing analysis for this URL (no API calls made)'
+                })
+            
+            # Check if this article was used as a comparison source
+            all_analyses_with_article = Analysis.query.filter_by(
+                comparison_article_id=original_article.id
+            ).all()
+            current_app.logger.info(f"  Found {len(all_analyses_with_article)} analysis/analyses with this article as comparison source")
+            
+            analysis_with_article = Analysis.query.filter_by(
+                comparison_article_id=original_article.id
+            ).first()
+            
+            if analysis_with_article:
+                current_app.logger.info(f"  Analysis {analysis_with_article.id} used this article as comparison (original article ID: {analysis_with_article.original_article_id})")
+                report_from_comparison = Report.query.filter_by(
+                    original_article_id=analysis_with_article.original_article_id
+                ).first()
+                
+                if report_from_comparison:
+                    current_app.logger.info(f"💰 Cheap Mode HIT: Found report {report_from_comparison.id} (article was comparison source)")
+                    return jsonify({
+                        'success': True,
+                        'article_id': original_article.id,
+                        'report_id': report_from_comparison.id,
+                        'report': report_from_comparison.to_dict(),
+                        'cheap_mode_hit': True,
+                        'message': 'Found existing analysis for this URL (no API calls made)'
+                    })
+            
+            current_app.logger.info("💰 Cheap Mode: No existing analysis found, will analyze with 3 sources max")
+        
+        # Curator: Check for existing analysis (standard behavior for merging)
+        existing_report = curator.check_existing_analysis(url, text)
+        
         # Get already-analyzed article IDs for filtering
         analyzed_ids = curator.get_analyzed_article_ids(original_article.id) if existing_report else [original_article.id]
         
-        # Iterative analysis loop (max 3 attempts)
+        # CHEAP MODE: Set limits
+        max_attempts = 1 if cheap_mode else 3
+        max_sources_to_check = 3 if cheap_mode else Config.MAX_SOURCES_TO_CHECK
+        
+        if cheap_mode:
+            current_app.logger.info(f"💰 Cheap Mode: Limited to {max_sources_to_check} sources, {max_attempts} attempt")
+        
+        # Iterative analysis loop
         report = existing_report
         new_sources_added = 0
         
-        for attempt in range(1, 4):
+        for attempt in range(1, max_attempts + 1):
             current_app.logger.info(f"\n{'='*60}")
-            current_app.logger.info(f"ANALYSIS ATTEMPT {attempt}/3")
+            current_app.logger.info(f"ANALYSIS ATTEMPT {attempt}/{max_attempts}")
             current_app.logger.info(f"{'='*60}")
             
             # Curator: Optimize search queries
@@ -164,7 +230,7 @@ def analyze_article():
             try:
                 sources = search_agent.find_corroborating_sources(
                     query_data=query_data,
-                    max_sources=Config.MAX_SOURCES_TO_CHECK
+                    max_sources=max_sources_to_check
                 )
             except Exception as e:
                 current_app.logger.error(f"Error in find_corroborating_sources: {e}")
@@ -193,7 +259,7 @@ def analyze_article():
                 current_app.logger.info(f"  URL: {source['url']}")
                 current_app.logger.info(f"  Title: {source.get('title', 'N/A')}")
                 
-                # Fetch and store source
+                # Fetch and store source (or get existing)
                 current_app.logger.info("  → Fetching article content...")
                 source_article = search_agent.fetch_and_store_source(
                     source['url'],
@@ -205,6 +271,25 @@ def analyze_article():
                     continue
                 
                 current_app.logger.info(f"  ✓ Content fetched ({len(source_article.content)} chars)")
+                
+                # Check if analysis already exists for this pair (skip expensive re-processing)
+                existing_analysis = Analysis.query.filter_by(
+                    original_article_id=original_article.id,
+                    comparison_article_id=source_article.id
+                ).first()
+                
+                if existing_analysis:
+                    current_app.logger.info(f"  ⚡ Analysis already exists - reusing (score: {existing_analysis.accuracy_score:.1f})")
+                    # Reuse existing analysis
+                    analyses.append({
+                        'comparison_article_id': source_article.id,
+                        'accuracy_score': existing_analysis.accuracy_score,
+                        'matching_facts': existing_analysis.get_matching_facts(),
+                        'conflicting_facts': existing_analysis.get_conflicting_facts(),
+                        'analysis_details': existing_analysis.get_analysis_details()
+                    })
+                    analyzed_ids.append(source_article.id)
+                    continue
                 
                 # Extract facts from source (hierarchical)
                 current_app.logger.info("  → Extracting facts...")

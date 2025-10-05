@@ -1,0 +1,5 @@
+Add a "Cheap mode" checkbox to be enabled by default on the analyze page.
+Cheap mode will:
+- Search for the link in all registered articles. 
+- If found, show the corresponding report no matter if the original from that report is different from the consulted link.
+- If not found, run an analysis that considers only 3 sources and no more than 3 useful sources.

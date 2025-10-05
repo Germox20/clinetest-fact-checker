@@ -15,6 +15,7 @@ class FactExtractorAgent:
     def process_article(self, url):
         """
         Process an article URL and extract facts.
+        Checks for existing article first to avoid duplicates.
         
         Args:
             url (str): URL of the article to process
@@ -22,12 +23,40 @@ class FactExtractorAgent:
         Returns:
             tuple: (article_object, facts_dict) or (None, None) on error
         """
+        print(f"\n→ Checking for existing article with URL: {url}")
+        
+        # Check if article already exists in database
+        existing_article = Article.query.filter_by(url=url).first()
+        
+        if existing_article:
+            print(f"  ✓ Found existing article (ID: {existing_article.id})")
+            print(f"    Title: {existing_article.title}")
+            print(f"    Source type: {existing_article.source_type}")
+            
+            # Get facts from database
+            facts_dict = self.get_facts_for_article(existing_article.id)
+            
+            # If no facts in DB, extract them now
+            if not facts_dict.get('what_facts') and not facts_dict.get('claims'):
+                print(f"  → No facts in DB, extracting now...")
+                facts_dict = self.gemini.extract_facts(
+                    existing_article.content,
+                    existing_article.title
+                )
+                self._save_facts_to_db(existing_article.id, facts_dict)
+            
+            return existing_article, facts_dict
+        
+        print(f"  ℹ Article not found in DB, fetching content...")
+        
         # Fetch article content
         article_data = self.news_api.fetch_article_content(url)
         
         if not article_data.get('success') or not article_data.get('content'):
-            print(f"Failed to fetch article content from {url}")
+            print(f"  ✗ Failed to fetch article content from {url}")
             return None, None
+        
+        print(f"  ✓ Content fetched, creating new article record...")
         
         # Create article record
         article = Article(
@@ -47,6 +76,8 @@ class FactExtractorAgent:
         # Save article to database
         db.session.add(article)
         db.session.commit()
+        
+        print(f"  ✓ Article saved (ID: {article.id})")
         
         # Save facts to database (hierarchical)
         self._save_facts_to_db(article.id, facts_dict)
